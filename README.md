@@ -180,6 +180,41 @@ GGG/
 - Движение по складу
 - Финансовые отчёты
 
+## 🚀 Развертывание
+
+### На Render (Production)
+
+Подробное руководство см. в [DEPLOYMENT.md](DEPLOYMENT.md)
+
+**Быстрый старт:**
+1. Подключите репозиторий к [Render](https://render.com)
+2. Создайте Blueprint из `render.yaml`
+3. Настройте переменные окружения
+4. Дождитесь завершения деплоя
+5. Выполните seed базы данных
+
+### С Docker
+
+```bash
+# Создайте .env файл
+echo "DB_PASSWORD=your_password" > .env
+echo "JWT_SECRET=your_secret_key" >> .env
+
+# Соберите frontend
+cd frontend && npm install && npm run build && cd ..
+
+# Запустите все сервисы
+docker-compose -f docker-compose.prod.yml up -d
+
+# Выполните миграции
+docker exec -it garant-beton-backend sh
+cd backend && npx prisma migrate deploy && npx prisma db seed
+```
+
+**Доступ:**
+- Backend: http://localhost:4000/api/v1/health
+- Frontend: http://localhost:3000
+
 ## 🔧 Разработка
 
 ### Backend

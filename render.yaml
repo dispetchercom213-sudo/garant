@@ -5,8 +5,8 @@ services:
     runtime: node
     region: frankfurt
     plan: free
-    buildCommand: cd backend && npm install && npx prisma generate && npm run build
-    startCommand: cd backend && npm run start:prod
+    buildCommand: npm run build
+    startCommand: npm start
     envVars:
       - key: DATABASE_URL
         sync: false
@@ -16,6 +16,8 @@ services:
         value: production
       - key: PORT
         value: 4000
+      - key: CORS_ORIGIN
+        value: https://garant-beton-frontend.onrender.com
     healthCheckPath: /api/v1/health
 
   # Frontend Service  
