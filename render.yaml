@@ -5,19 +5,23 @@ services:
     runtime: node
     region: frankfurt
     plan: free
-    buildCommand: npm run build
-    startCommand: npm start
+    buildCommand: cd backend && npm install && npx prisma generate && npm run build
+    startCommand: cd backend && npm run start:prod
     envVars:
       - key: DATABASE_URL
-        sync: false
+        fromDatabase:
+          name: garant-beton-db
+          property: connectionString
       - key: JWT_SECRET
         generateValue: true
       - key: NODE_ENV
         value: production
       - key: PORT
-        value: 4000
+        value: 10000
       - key: CORS_ORIGIN
         value: https://garant-beton-frontend.onrender.com
+      - key: ORS_API_KEY
+        sync: false
     healthCheckPath: /api/v1/health
 
   # Frontend Service  
@@ -30,7 +34,7 @@ services:
     staticPublishPath: ./frontend/dist
     envVars:
       - key: VITE_API_URL
-        value: https://garant-beton-backend.onrender.com
+        value: https://garant-beton-backend.onrender.com/api/v1
     routes:
       - type: rewrite
         source: /*
