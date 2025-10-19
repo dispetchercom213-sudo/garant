@@ -1,0 +1,565 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                       Int              @id @default(autoincrement())
+  login                    String           @unique
+  password                 String
+  firstName                String?
+  lastName                 String?
+  phone                    String?
+  role                     UserRole
+  status                   UserStatus       @default(ACTIVE)
+  createdAt                DateTime         @default(now())
+  updatedAt                DateTime         @updatedAt
+  username                 String?          @unique
+  email                    String?
+  currentRole              UserRole?
+  createdById              Int?
+  driver                   Driver?
+  createdInvoices          Invoice[]        @relation("InvoiceCreatedBy")
+  dispatchedInvoices       Invoice[]        @relation("InvoiceDispatchedBy")
+  approvedOrders           Order[]          @relation("OrderApprovedBy")
+  createdOrders            Order[]          @relation("OrderCreatedBy")
+  deletionRequestedOrders  Order[]          @relation("OrderDeletionRequestedBy")
+  priceAgreements          PriceAgreement[]
+  internalRequests         InternalRequest[] @relation("RequestEmployee")
+  createdBy                User?            @relation("UserCreatedBy", fields: [createdById], references: [id])
+  createdUsers             User[]           @relation("UserCreatedBy")
+  createdCounterparties    Counterparty[]
+}
+
+model Company {
+  id         Int         @id @default(autoincrement())
+  name       String
+  bin        String      @unique
+  address    String
+  phone      String
+  email      String?
+  director   String?
+  bankName   String?
+  iik        String?
+  bik        String?
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+  invoices   Invoice[]
+  warehouses Warehouse[]
+  weighingHistory DriverWeighingHistory[]
+}
+
+model Counterparty {
+  id                  Int              @id @default(autoincrement())
+  kind                CounterpartyKind
+  type                CounterpartyType
+  name                String
+  binOrIin            String?
+  phone               String
+  address             String?
+  representativeName  String?
+  representativePhone String?
+  createdById         Int?
+  createdBy           User?            @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+  customerInvoices    Invoice[]        @relation("CustomerInvoices")
+  supplierInvoices    Invoice[]        @relation("SupplierInvoices")
+  customerOrders      Order[]
+  priceAgreements     PriceAgreement[]
+  weighingHistory     DriverWeighingHistory[] @relation("SupplierWeighingHistory")
+}
+
+model Warehouse {
+  id                 Int                        @id @default(autoincrement())
+  name               String
+  address            String
+  latitude           Float?
+  longitude          Float?
+  phone              String?
+  companyId          Int?
+  createdAt          DateTime                   @default(now())
+  updatedAt          DateTime                   @updatedAt
+  scaleActive        Boolean                    @default(false)
+  scaleUrl           String?
+  scaleDriver        String?
+  scalePolling       Int?                       @default(1000)
+  scaleDecimals      Int?                       @default(2)
+  cameraActive       Boolean                    @default(false)
+  cameraUrl          String?
+  // ScaleBridge интеграция
+  hasScales          Boolean                    @default(false)
+  scaleIpAddress     String?
+  scaleApiKey        String?
+  scaleComPort       String?
+  scaleStatus        String?                    @default("disconnected")
+  scaleLastSeen      DateTime?
+  hasCamera          Boolean                    @default(false)
+  invoices           Invoice[]
+  scaleFixes         ScaleFix[]
+  company            Company?                   @relation(fields: [companyId], references: [id])
+  balances           WarehouseMaterialBalance[]
+  transactions       WarehouseTransaction[]
+  scaleSettings      ScaleSetting?
+  scaleCameraSettings ScaleCameraSetting[]
+  internalRequests   InternalRequest[]
+  weighingHistory    DriverWeighingHistory[]
+}
+
+model MaterialType {
+  id        Int              @id @default(autoincrement())
+  name      MaterialTypeEnum @unique
+  materials Material[]
+}
+
+model Material {
+  id                    Int                        @id @default(autoincrement())
+  name                  String
+  unit                  String
+  typeId                Int
+  createdAt             DateTime                   @default(now())
+  updatedAt             DateTime                   @updatedAt
+  markUsages            ConcreteMarkMaterial[]
+  invoices              Invoice[]
+  invoiceItems          InvoiceItem[]
+  type                  MaterialType               @relation(fields: [typeId], references: [id])
+  balances              WarehouseMaterialBalance[]
+  warehouseTransactions WarehouseTransaction[]
+  weighingHistory       DriverWeighingHistory[]
+}
+
+model WarehouseMaterialBalance {
+  id          Int       @id @default(autoincrement())
+  warehouseId Int
+  materialId  Int
+  quantity    Float     @default(0)
+  material    Material  @relation(fields: [materialId], references: [id])
+  warehouse   Warehouse @relation(fields: [warehouseId], references: [id])
+
+  @@unique([warehouseId, materialId])
+}
+
+model ConcreteMark {
+  id              Int                    @id @default(autoincrement())
+  name            String                 @unique
+  description     String?
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
+  materials       ConcreteMarkMaterial[]
+  invoices        Invoice[]
+  orders          Order[]
+  priceAgreements PriceAgreement[]
+}
+
+model ConcreteMarkMaterial {
+  id            Int          @id @default(autoincrement())
+  markId        Int
+  materialId    Int
+  quantityPerM3 Float
+  unit          String
+  mark          ConcreteMark @relation(fields: [markId], references: [id])
+  material      Material     @relation(fields: [materialId], references: [id])
+
+  @@unique([markId, materialId])
+}
+
+model Driver {
+  id                Int       @id @default(autoincrement())
+  name              String
+  phone             String    @unique
+  email             String?
+  userId            Int?      @unique
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  firstName         String
+  lastName          String
+  licenseNumber     String?   @unique
+  licenseExpiryDate DateTime?
+  user              User?     @relation(fields: [userId], references: [id])
+  invoices          Invoice[]
+  vehicles          Vehicle[] @relation("DriverVehicles")
+  weighingHistory   DriverWeighingHistory[]
+}
+
+model Vehicle {
+  id        Int         @id @default(autoincrement())
+  type      VehicleType
+  plate     String      @unique
+  capacity  Float?
+  unit      String?
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+  drivers   Driver[]    @relation("DriverVehicles")
+  invoices  Invoice[]
+  weighingHistory DriverWeighingHistory[]
+}
+
+model PriceAgreement {
+  id             Int          @id @default(autoincrement())
+  customerId     Int
+  concreteMarkId Int
+  basePrice      Float
+  customPrice    Float
+  createdById    Int
+  effectiveFrom  DateTime     @default(now())
+  effectiveTo    DateTime?
+  note           String?
+  concreteMark   ConcreteMark @relation(fields: [concreteMarkId], references: [id])
+  createdBy      User         @relation(fields: [createdById], references: [id])
+  customer       Counterparty @relation(fields: [customerId], references: [id])
+
+  @@unique([customerId, concreteMarkId])
+}
+
+model Order {
+  id                     Int                      @id @default(autoincrement())
+  orderNumber            String                   @unique
+  customerId             Int
+  concreteMarkId         Int
+  quantityM3             Float
+  paymentType            PaymentType
+  deliveryDate           DateTime
+  deliveryTime           String
+  deliveryAddress        String
+  coordinates            String?
+  status                 OrderStatus              @default(PENDING_DIRECTOR)
+  notes                  String?
+  createdById            Int
+  approvedById           Int?
+  // Поля для предложений изменений от директора
+  proposedDeliveryDate   DateTime?
+  proposedDeliveryTime   String?
+  proposedDeliveryAddress String?
+  proposedCoordinates    String?
+  changeReason           String?                  // Причина предложенных изменений
+  // Поля для запроса на удаление (тройное подтверждение)
+  deletionRequestedById  Int?                     // Кто запросил удаление
+  deletionReason         String?                  // Причина удаления
+  deletionRequestedAt    DateTime?                // Когда запрошено удаление
+  directorApprovedDeletion   Boolean?  @default(false)  // Директор подтвердил удаление
+  dispatcherApprovedDeletion Boolean?  @default(false)  // Диспетчер подтвердил удаление
+  creatorApprovedDeletion    Boolean?  @default(false)  // Создатель подтвердил удаление
+  createdAt              DateTime                 @default(now())
+  updatedAt              DateTime                 @updatedAt
+  invoices               Invoice[]
+  approvedBy             User?                    @relation("OrderApprovedBy", fields: [approvedById], references: [id])
+  concreteMark           ConcreteMark             @relation(fields: [concreteMarkId], references: [id])
+  createdBy              User                     @relation("OrderCreatedBy", fields: [createdById], references: [id])
+  customer               Counterparty             @relation(fields: [customerId], references: [id])
+  deletionRequestedBy    User?                    @relation("OrderDeletionRequestedBy", fields: [deletionRequestedById], references: [id])
+  additionalServices     OrderAdditionalService[]
+}
+
+model Invoice {
+  id                    Int                    @id @default(autoincrement())
+  invoiceNumber         String                 @unique
+  type                  InvoiceType
+  date                  DateTime               @default(now())
+  orderId               Int?
+  companyId             Int?
+  warehouseId           Int?
+  customerId            Int?
+  supplierId            Int?
+  createdById           Int
+  contractNumber        String?
+  concreteMarkId        Int?
+  quantityM3            Float?
+  slumpValue            Float?
+  sealNumbers           String[]
+  departureAddress      String?
+  latitudeFrom          Float?
+  longitudeFrom         Float?
+  latitudeTo            Float?
+  longitudeTo           Float?
+  distanceKm            Float?
+  vehicleId             Int?
+  driverId              Int?
+  dispatcherId          Int?
+  departedPlantAt       DateTime?
+  arrivedSiteAt         DateTime?
+  departedSiteAt        DateTime?
+  arrivedPlantAt        DateTime?
+  releasedByFio         String?
+  receivedByFio         String?
+  basePricePerM3        Float?
+  salePricePerM3        Float?
+  managerProfit         Float?
+  vatRate               Float?                 // Ставка НДС в процентах (например 12)
+  vatAmount             Float?                 // Сумма НДС
+  materialId            Int?
+  grossWeightKg         Float?
+  grossWeightAt         DateTime?              // Время фиксации веса брутто
+  tareWeightKg          Float?
+  tareWeightAt          DateTime?              // Время фиксации веса тары
+  netWeightKg           Float?
+  moisturePercent       Float?
+  correctedWeightKg     Float?
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
+  status                String?
+  // Статус маршрута водителя
+  driverAcceptedAt      DateTime?              // Время принятия накладной водителем
+  arrivedSiteLatitude   Float?                 // Координаты прибытия на объект
+  arrivedSiteLongitude  Float?
+  departedSiteLatitude  Float?                 // Координаты выезда с объекта
+  departedSiteLongitude Float?
+  arrivedPlantLatitude  Float?                 // Координаты прибытия на завод
+  arrivedPlantLongitude Float?
+  totalDistanceKm       Float?                 // Общее расстояние маршрута по дорогам
+  company               Company?               @relation(fields: [companyId], references: [id])
+  concreteMark          ConcreteMark?          @relation(fields: [concreteMarkId], references: [id])
+  createdBy             User                   @relation("InvoiceCreatedBy", fields: [createdById], references: [id])
+  customer              Counterparty?          @relation("CustomerInvoices", fields: [customerId], references: [id])
+  dispatcher            User?                  @relation("InvoiceDispatchedBy", fields: [dispatcherId], references: [id])
+  driver                Driver?                @relation(fields: [driverId], references: [id])
+  material              Material?              @relation(fields: [materialId], references: [id])
+  order                 Order?                 @relation(fields: [orderId], references: [id])
+  supplier              Counterparty?          @relation("SupplierInvoices", fields: [supplierId], references: [id])
+  vehicle               Vehicle?               @relation(fields: [vehicleId], references: [id])
+  warehouse             Warehouse?             @relation(fields: [warehouseId], references: [id])
+  items                 InvoiceItem[]
+  warehouseTransactions WarehouseTransaction[]
+  weighingHistory       DriverWeighingHistory[]
+}
+
+model InvoiceItem {
+  id           Int      @id @default(autoincrement())
+  invoiceId    Int
+  materialId   Int
+  quantity     Float
+  unit         String
+  isManualEdit Boolean  @default(false)
+  invoice      Invoice  @relation(fields: [invoiceId], references: [id])
+  material     Material @relation(fields: [materialId], references: [id])
+}
+
+model WarehouseTransaction {
+  id           Int         @id @default(autoincrement())
+  warehouseId  Int
+  materialId   Int
+  invoiceId    Int?
+  type         InvoiceType
+  quantity     Float
+  balanceAfter Float
+  createdAt    DateTime    @default(now())
+  unit         String?
+  notes        String?
+  invoice      Invoice?    @relation(fields: [invoiceId], references: [id])
+  material     Material    @relation(fields: [materialId], references: [id])
+  warehouse    Warehouse   @relation(fields: [warehouseId], references: [id])
+}
+
+model ScaleFix {
+  id          Int       @id @default(autoincrement())
+  warehouseId Int
+  type        String
+  weight      Float
+  photoPath   String?
+  createdAt   DateTime  @default(now())
+  warehouse   Warehouse @relation(fields: [warehouseId], references: [id])
+
+  @@index([createdAt])
+  @@index([warehouseId])
+}
+
+model DriverWeighingHistory {
+  id            Int       @id @default(autoincrement())
+  driverId      Int
+  warehouseId   Int
+  vehicleId     Int?
+  supplierId    Int?
+  companyId     Int?
+  materialId    Int?
+  grossWeightKg Float?
+  tareWeightKg  Float?
+  netWeightKg   Float?
+  grossWeightAt DateTime?
+  tareWeightAt  DateTime?
+  invoiceId     Int?      // Связь с созданной накладной
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  
+  driver        Driver     @relation(fields: [driverId], references: [id])
+  warehouse     Warehouse  @relation(fields: [warehouseId], references: [id])
+  vehicle       Vehicle?   @relation(fields: [vehicleId], references: [id])
+  supplier      Counterparty? @relation("SupplierWeighingHistory", fields: [supplierId], references: [id])
+  company       Company?   @relation(fields: [companyId], references: [id])
+  material      Material?  @relation(fields: [materialId], references: [id])
+  invoice       Invoice?   @relation(fields: [invoiceId], references: [id])
+
+  @@index([driverId])
+  @@index([createdAt])
+  @@index([warehouseId])
+}
+
+model SystemSetting {
+  id        Int      @id @default(autoincrement())
+  key       String   @unique
+  value     String
+  updatedAt DateTime @updatedAt
+}
+
+model ScaleSetting {
+  id          Int      @id @default(autoincrement())
+  warehouseId Int      @unique
+  scaleIp     String
+  comPort     String
+  baudRate    Int      @default(9600)
+  dataBits    Int      @default(8)
+  parity      String   @default("none")
+  stopBits    Int      @default(1)
+  backendUrl  String?
+  apiKey      String?
+  autoStart   Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  warehouse   Warehouse @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+}
+
+model ScaleCameraSetting {
+  id           Int       @id @default(autoincrement())
+  warehouseId  Int
+  weightType   String    // 'brutto', 'tara', 'netto'
+  cameraType   String    // 'usb', 'rtsp'
+  cameraDevice Int?      // Номер USB камеры (0-4)
+  cameraUrl    String?   // RTSP URL
+  cameraName   String?   // Название камеры
+  enabled      Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  warehouse    Warehouse @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+  
+  @@unique([warehouseId, weightType, cameraType, cameraDevice])
+}
+
+enum UserRole {
+  DEVELOPER
+  ADMIN
+  DIRECTOR
+  ACCOUNTANT
+  MANAGER
+  DISPATCHER
+  SUPPLIER
+  OPERATOR
+  DRIVER
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  BLOCKED
+}
+
+enum VehicleType {
+  MIXER
+  DUMP_TRUCK
+  LOADER
+  OTHER
+}
+
+enum InvoiceType {
+  EXPENSE
+  INCOME
+}
+
+enum MaterialTypeEnum {
+  CEMENT
+  SAND
+  GRAVEL
+  WATER
+  ADDITIVE
+}
+
+enum CounterpartyKind {
+  INDIVIDUAL
+  LEGAL
+}
+
+enum CounterpartyType {
+  CUSTOMER
+  SUPPLIER
+}
+
+enum PaymentType {
+  CASH
+  CASHLESS
+}
+
+enum OrderStatus {
+  DRAFT
+  PENDING_DIRECTOR
+  WAITING_CREATOR_APPROVAL  // Директор предложил изменения, ждет подтверждения от создателя
+  APPROVED_BY_DIRECTOR
+  PENDING_DISPATCHER
+  DISPATCHED
+  IN_DELIVERY
+  DELIVERED
+  COMPLETED
+  REJECTED
+  CANCELED
+}
+
+enum RequestStatus {
+  NEW
+  UNDER_REVIEW
+  WAITING_DIRECTOR
+  APPROVED
+  REJECTED
+  WAITING_ACCOUNTANT
+  FUNDED
+  PURCHASED
+  DELIVERED
+}
+
+model InternalRequest {
+  id                 Int           @id @default(autoincrement())
+  requestNumber      String        @unique
+  employeeId         Int
+  itemName           String
+  quantity           Float
+  unit               String
+  reason             String?
+  supplier           String?
+  price              Float?
+  totalAmount        Float?
+  warehouseId        Int?
+  status             RequestStatus @default(NEW)
+  directorDecision   String?
+  accountantApproved Boolean       @default(false)
+  receiverConfirmed  Boolean       @default(false)
+  currentStep        String?
+  history            Json?
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+  employee           User          @relation("RequestEmployee", fields: [employeeId], references: [id])
+  warehouse          Warehouse?    @relation(fields: [warehouseId], references: [id])
+}
+
+model AdditionalService {
+  id          Int                        @id @default(autoincrement())
+  name        String                     @unique
+  description String?
+  price       Float                      @default(0)
+  unit        String?                    // м³, шт, час и т.д.
+  createdAt   DateTime                   @default(now())
+  updatedAt   DateTime                   @updatedAt
+  orders      OrderAdditionalService[]
+}
+
+model OrderAdditionalService {
+  id                  Int               @id @default(autoincrement())
+  orderId             Int
+  additionalServiceId Int
+  quantity            Float             @default(1)
+  price               Float             // Цена на момент заказа
+  totalAmount         Float             // quantity * price
+  createdAt           DateTime          @default(now())
+  order               Order             @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  additionalService   AdditionalService @relation(fields: [additionalServiceId], references: [id])
+
+  @@unique([orderId, additionalServiceId])
+}

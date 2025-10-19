@@ -1,0 +1,104 @@
+.container {
+  padding: 1rem;
+  min-height: 100vh;
+  background: #ffffff;
+}
+
+.title {
+  color: #212529;
+  text-align: center;
+  margin-bottom: 1.5rem;
+  font-size: 2rem;
+  font-weight: 700;
+}
+
+.emptyCard {
+  background: white;
+  padding: 3rem 1.5rem;
+}
+
+.invoiceCard {
+  background: white;
+  border: 2px solid #e9ecef;
+  transition: all 0.3s ease;
+}
+
+.invoiceCard:hover {
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.15);
+  transform: translateY(-2px);
+}
+
+.invoiceNumber {
+  color: #495057;
+  font-size: 1.5rem;
+}
+
+.infoBox {
+  padding: 0.5rem 0;
+}
+
+.actionButton {
+  height: 4rem !important;
+  font-size: 1.25rem !important;
+  font-weight: 600 !important;
+  border-radius: 12px !important;
+  transition: all 0.2s ease !important;
+}
+
+.actionButton:active {
+  transform: scale(0.98);
+}
+
+.completedBox {
+  background: #f8f9fa;
+  padding: 1rem;
+  border-radius: 8px;
+  border: 2px solid #40c057;
+}
+
+/* Адаптация для мобильных устройств */
+@media (max-width: 768px) {
+  .container {
+    padding: 0.75rem;
+  }
+
+  .title {
+    font-size: 1.75rem;
+    margin-bottom: 1rem;
+  }
+
+  .invoiceCard {
+    padding: 1rem;
+  }
+
+  .invoiceNumber {
+    font-size: 1.25rem;
+  }
+
+  .actionButton {
+    height: 3.5rem !important;
+    font-size: 1.1rem !important;
+  }
+}
+
+/* Улучшенная читаемость на маленьких экранах */
+@media (max-width: 480px) {
+  .container {
+    padding: 0.5rem;
+  }
+
+  .title {
+    font-size: 1.5rem;
+  }
+
+  .invoiceNumber {
+    font-size: 1.1rem;
+  }
+
+  .actionButton {
+    height: 3rem !important;
+    font-size: 1rem !important;
+  }
+}
+
+

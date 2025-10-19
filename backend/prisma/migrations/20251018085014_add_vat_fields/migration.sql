@@ -1,0 +1,3 @@
+-- AlterTable
+ALTER TABLE "Invoice" ADD COLUMN     "vatAmount" DOUBLE PRECISION,
+ADD COLUMN     "vatRate" DOUBLE PRECISION;

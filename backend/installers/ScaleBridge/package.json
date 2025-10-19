@@ -1,0 +1,66 @@
+{
+  "name": "scalebridge",
+  "version": "1.0.1",
+  "description": "Мост между физическими весами, камерой и BetonAPP backend",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "start:hidden": "electron . --no-sandbox",
+    "build": "electron-builder build --win --publish never",
+    "build:dir": "electron-builder build --win --dir"
+  },
+  "keywords": [
+    "scales",
+    "weighing",
+    "electron",
+    "bridge"
+  ],
+  "author": "ScaleBridge",
+  "license": "MIT",
+  "dependencies": {
+    "@serialport/parser-readline": "^12.0.0",
+    "axios": "^1.6.2",
+    "cors": "^2.8.5",
+    "express": "^4.18.2",
+    "node-schedule": "^2.1.1",
+    "node-webcam": "^0.8.1",
+    "serialport": "^12.0.0",
+    "uuid": "^9.0.1",
+    "winston": "^3.11.0"
+  },
+  "devDependencies": {
+    "electron": "^28.0.0",
+    "electron-builder": "^24.9.1"
+  },
+  "build": {
+    "appId": "com.scalebridge.app",
+    "productName": "ScaleBridge",
+    "directories": {
+      "output": "dist"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "sign": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "ScaleBridge",
+      "runAfterFinish": true
+    },
+    "files": [
+      "**/*",
+      "!node_modules/**/*",
+      "node_modules/**/*"
+    ]
+  }
+}
