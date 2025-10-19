@@ -1,11 +1,17 @@
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, MaterialTypeEnum } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 
 const prisma = new PrismaClient();
 
 async function initMaterialTypes() {
   try {
-    const typeNames = ['CEMENT', 'SAND', 'GRAVEL', 'WATER', 'ADDITIVE'];
+    const typeNames: MaterialTypeEnum[] = [
+      MaterialTypeEnum.CEMENT,
+      MaterialTypeEnum.SAND,
+      MaterialTypeEnum.GRAVEL,
+      MaterialTypeEnum.WATER,
+      MaterialTypeEnum.ADDITIVE
+    ];
     
     for (const name of typeNames) {
       const existing = await prisma.materialType.findUnique({ where: { name } });
@@ -21,9 +27,9 @@ async function initMaterialTypes() {
 
 async function initBasicMaterials() {
   try {
-    const cementType = await prisma.materialType.findUnique({ where: { name: 'CEMENT' } });
-    const sandType = await prisma.materialType.findUnique({ where: { name: 'SAND' } });
-    const gravelType = await prisma.materialType.findUnique({ where: { name: 'GRAVEL' } });
+    const cementType = await prisma.materialType.findUnique({ where: { name: MaterialTypeEnum.CEMENT } });
+    const sandType = await prisma.materialType.findUnique({ where: { name: MaterialTypeEnum.SAND } });
+    const gravelType = await prisma.materialType.findUnique({ where: { name: MaterialTypeEnum.GRAVEL } });
 
     if (cementType) {
       const existingCement = await prisma.material.findFirst({ where: { name: 'Цемент М400' } });
