@@ -1,0 +1,44 @@
+services:
+  # Backend Service
+  - type: web
+    name: garant-beton-backend
+    runtime: node
+    region: frankfurt
+    plan: free
+    buildCommand: cd backend && npm install && npx prisma generate && npm run build
+    startCommand: cd backend && npm run start:prod
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 4000
+    healthCheckPath: /api/v1/health
+
+  # Frontend Service  
+  - type: web
+    name: garant-beton-frontend
+    runtime: static
+    region: frankfurt
+    plan: free
+    buildCommand: cd frontend && npm install && npm run build
+    staticPublishPath: ./frontend/dist
+    envVars:
+      - key: VITE_API_URL
+        value: https://garant-beton-backend.onrender.com
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+
+  # Database (PostgreSQL)
+databases:
+  - name: garant-beton-db
+    databaseName: garant_beton
+    region: frankfurt
+    plan: free
+    ipAllowList: []
+
