@@ -6,6 +6,7 @@ services:
     region: frankfurt
     plan: free
     buildCommand: cd backend && npm install && npx prisma generate && npm run build
+    preDeployCommand: cd backend && npx prisma migrate deploy && node create-users.js
     startCommand: cd backend && npm run start:prod
     envVars:
       - key: DATABASE_URL
