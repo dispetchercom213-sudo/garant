@@ -19,7 +19,7 @@ services:
       - key: PORT
         value: 10000
       - key: CORS_ORIGIN
-        value: https://garant-beton-frontend.onrender.com
+        value: https://garant-3oqh.onrender.com
       - key: ORS_API_KEY
         sync: false
     healthCheckPath: /api/v1/health
