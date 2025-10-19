@@ -184,7 +184,7 @@ export const ProfilePage: React.FC = () => {
 
             <div className="flex items-start gap-3">
               <div className="w-32 text-sm text-gray-600">Логин:</div>
-              <div className="font-medium">{user.username || user.login}</div>
+              <div className="font-medium">{user.username}</div>
             </div>
 
             <div className="flex items-start gap-3">

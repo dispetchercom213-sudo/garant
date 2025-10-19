@@ -67,9 +67,11 @@ export const OrdersPage: React.FC = () => {
     [OrderStatus.PENDING_DISPATCHER]: 'На рассмотрении диспетчера',
     [OrderStatus.DISPATCHED]: 'Отправлено',
     [OrderStatus.IN_DELIVERY]: 'В доставке',
+    [OrderStatus.DELIVERED]: 'Доставлено',
     [OrderStatus.COMPLETED]: 'Завершено',
     [OrderStatus.REJECTED]: 'Отклонено',
     [OrderStatus.CANCELED]: 'Отменено',
+    [OrderStatus.WAITING_CREATOR_APPROVAL]: 'Ожидает одобрения создателя',
   };
 
   const paymentTypeLabels = {

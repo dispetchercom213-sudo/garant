@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, memo, useCallback } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { useAuthStore } from './stores/authStore';
 import { ProtectedRoute } from './components/ProtectedRoute';
@@ -7,7 +7,7 @@ import { LayoutNew as Layout } from './components/LayoutNew';
 import { UserRole } from './types';
 
 // Компонент для редиректа на стартовую страницу в зависимости от роли
-const RoleBasedRedirect = () => {
+const RoleBasedRedirect = memo(() => {
   const { user } = useAuthStore();
   
   if (!user) return <Navigate to="/dashboard" replace />;
@@ -31,7 +31,7 @@ const RoleBasedRedirect = () => {
     default:
       return <Navigate to="/dashboard" replace />;
   }
-};
+});
 import { LoginPage } from './pages/LoginPage';
 import { DashboardPageNew as DashboardPage } from './pages/DashboardPageNew';
 import { CompaniesPageNew as CompaniesPage } from './pages/CompaniesPageNew';
@@ -60,12 +60,16 @@ import { DirectorRequestsPage } from './pages/DirectorRequestsPage';
 import { AccountantRequestsPage } from './pages/AccountantRequestsPage';
 import { InternalRequestsReportPage } from './pages/InternalRequestsReportPage';
 
-function App() {
+const App = memo(() => {
   const { initialize } = useAuthStore();
 
-  useEffect(() => {
+  const handleInitialize = useCallback(() => {
     initialize();
   }, [initialize]);
+
+  useEffect(() => {
+    handleInitialize();
+  }, [handleInitialize]);
 
   return (
     <Router>
@@ -204,6 +208,8 @@ function App() {
       </Routes>
     </Router>
   );
-}
+});
+
+App.displayName = 'App';
 
 export default App;

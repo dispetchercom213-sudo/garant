@@ -1,4 +1,6 @@
-import axios from 'axios';
+import axios, { type AxiosResponse } from 'axios';
+import { getStoredToken, clearAuthData } from '../utils/tokenUtils';
+import { handleApiError, isAuthError, logError, retryRequest, type RetryOptions } from '../utils/errorUtils';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000/api/v1';
 
@@ -7,18 +9,27 @@ export const api = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
+  timeout: 30000, // 30 секунд таймаут
 });
 
 // Интерцептор для добавления токена к запросам
 api.interceptors.request.use(
   (config) => {
-    const token = localStorage.getItem('token');
+    const token = getStoredToken();
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
+    
+    // Добавляем CSRF токен если есть
+    const csrfToken = localStorage.getItem('csrfToken');
+    if (csrfToken) {
+      config.headers['X-CSRF-Token'] = csrfToken;
+    }
+    
     return config;
   },
   (error) => {
+    logError('Request Interceptor', error);
     return Promise.reject(error);
   }
 );
@@ -26,31 +37,52 @@ api.interceptors.request.use(
 // Интерцептор для обработки ответов
 api.interceptors.response.use(
   (response) => {
+    // Сохраняем CSRF токен если он пришел в ответе
+    const csrfToken = response.headers['x-csrf-token'];
+    if (csrfToken) {
+      localStorage.setItem('csrfToken', csrfToken);
+    }
+    
     return response;
   },
   (error) => {
-    if (error.response?.status === 401) {
-      console.log('🚨 API получил 401 ошибку:', {
-        url: error.config?.url,
-        method: error.config?.method,
-        data: error.response?.data
-      });
-      
+    logError('Response Interceptor', error);
+    
+    if (isAuthError(error)) {
       // Проверяем, не это ли запрос смены роли
       if (error.config?.url?.includes('/auth/switch-role')) {
-        console.log('⚠️ 401 ошибка при смене роли - НЕ очищаем localStorage');
+        console.warn('⚠️ 401 ошибка при смене роли - НЕ очищаем localStorage');
         // Не очищаем localStorage при ошибке смены роли
       } else {
-        console.log('🚪 Токен истек - очищаем localStorage и перенаправляем на логин');
-        // Токен истек или недействителен
-        localStorage.removeItem('token');
-        localStorage.removeItem('user');
-        window.location.href = '/login';
+        console.warn('🚪 Токен истек - очищаем localStorage и перенаправляем на логин');
+        clearAuthData();
+        
+        // Плавный редирект вместо принудительного
+        if (window.location.pathname !== '/login') {
+          window.location.href = '/login';
+        }
       }
     }
+    
     return Promise.reject(error);
   }
 );
+
+/**
+ * Выполняет API запрос с retry логикой
+ */
+export const apiRequest = async <T>(
+  requestFn: () => Promise<AxiosResponse<T>>,
+  retryOptions?: RetryOptions
+): Promise<T> => {
+  try {
+    const response = await retryRequest(requestFn, retryOptions);
+    return response.data;
+  } catch (error) {
+    const errorMessage = handleApiError(error);
+    throw new Error(errorMessage);
+  }
+};
 
 // API методы для аутентификации
 export const authApi = {

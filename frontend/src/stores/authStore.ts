@@ -1,5 +1,15 @@
 import { create } from 'zustand';
-import { authApi } from '../services/api';
+import { authApi, apiRequest } from '../services/api';
+import { 
+  getStoredToken, 
+  getStoredUser, 
+  saveAuthData, 
+  clearAuthData, 
+  isTokenValid,
+  isTokenExpiringSoon,
+  getTokenTimeToExpiry
+} from '../utils/tokenUtils';
+import { handleApiError, logError } from '../utils/errorUtils';
 
 interface User {
   id: number;
@@ -36,19 +46,14 @@ export const useAuthStore = create<AuthState>((set) => ({
   login: async (credentials) => {
     console.log('🔐 Начинаем логин с данными:', { login: credentials.login });
     set({ isLoading: true, error: null });
+    
     try {
-      const response = await authApi.login(credentials);
-      console.log('📡 Ответ от API логина:', response.data);
+      const response = await apiRequest(() => authApi.login(credentials));
       
-      const { access_token, user } = response.data;
+      const { access_token, user } = response;
       
-      console.log('💾 Сохраняем в localStorage:', {
-        token: access_token ? 'есть' : 'нет',
-        user: user ? `${user.username} (${user.role})` : 'нет'
-      });
-      
-      localStorage.setItem('token', access_token);
-      localStorage.setItem('user', JSON.stringify(user));
+      // Безопасно сохраняем данные
+      saveAuthData(access_token, user);
       
       set({
         user,
@@ -60,8 +65,8 @@ export const useAuthStore = create<AuthState>((set) => ({
       
       console.log('✅ Логин успешен, store обновлен');
     } catch (error: any) {
-      console.error('❌ Ошибка логина:', error.response?.data);
-      const errorMessage = error.response?.data?.message || 'Ошибка входа в систему';
+      logError('Login', error);
+      const errorMessage = handleApiError(error);
       set({
         error: errorMessage,
         isLoading: false,
@@ -72,8 +77,7 @@ export const useAuthStore = create<AuthState>((set) => ({
 
   logout: () => {
     console.log('🚪 Вызван logout - очищаем данные пользователя');
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
+    clearAuthData();
     set({
       user: null,
       token: null,
@@ -91,24 +95,15 @@ export const useAuthStore = create<AuthState>((set) => ({
       
       console.log('🔄 Начинаем переключение роли:', { 
         role, 
-        userId: currentUser.id, 
-        currentUser,
-        currentToken: localStorage.getItem('token')
+        userId: currentUser.id
       });
       
-      const response = await authApi.switchRole(role, currentUser.id);
-      console.log('📡 Ответ от API:', response.data);
+      const response = await apiRequest(() => authApi.switchRole(role, currentUser.id));
       
-      const { access_token, user } = response.data;
+      const { access_token, user } = response;
       
-      // Обновляем localStorage
-      localStorage.setItem('token', access_token);
-      localStorage.setItem('user', JSON.stringify(user));
-      
-      console.log('💾 Обновили localStorage:', {
-        newToken: access_token,
-        newUser: user
-      });
+      // Безопасно обновляем данные
+      saveAuthData(access_token, user);
       
       // Обновляем store
       set({
@@ -118,14 +113,10 @@ export const useAuthStore = create<AuthState>((set) => ({
         error: null,
       });
       
-      console.log('✅ Роль успешно переключена в store:', {
-        user,
-        token: access_token,
-        isAuthenticated: true
-      });
+      console.log('✅ Роль успешно переключена');
     } catch (error: any) {
-      console.error('❌ Детали ошибки переключения роли:', error.response?.data);
-      const errorMessage = error.response?.data?.message || 'Ошибка переключения роли';
+      logError('Switch Role', error);
+      const errorMessage = handleApiError(error);
       
       // В случае ошибки не логаутим пользователя, просто показываем ошибку
       set({ error: errorMessage });
@@ -134,34 +125,35 @@ export const useAuthStore = create<AuthState>((set) => ({
   },
 
   initialize: () => {
-    const token = localStorage.getItem('token');
-    const userStr = localStorage.getItem('user');
+    const token = getStoredToken();
+    const user = getStoredUser();
     
     console.log('🚀 Инициализация authStore:', {
       token: token ? 'есть' : 'нет',
-      userStr: userStr ? 'есть' : 'нет'
+      user: user ? 'есть' : 'нет'
     });
     
-    if (token && userStr) {
-      try {
-        const user = JSON.parse(userStr);
-        console.log('✅ Успешная инициализация:', {
-          user: `${user.username} (${user.role})`,
-          token: token.substring(0, 20) + '...'
-        });
-        set({
-          user,
-          token,
-          isAuthenticated: true,
-        });
-      } catch (error) {
-        console.error('❌ Ошибка парсинга пользователя:', error);
-        // Невалидные данные в localStorage, очищаем
-        localStorage.removeItem('token');
-        localStorage.removeItem('user');
+    if (token && user) {
+      // Проверяем, не истекает ли токен скоро
+      if (isTokenExpiringSoon(token, 5)) {
+        const timeToExpiry = getTokenTimeToExpiry(token);
+        console.warn(`⚠️ Токен истекает через ${timeToExpiry} минут`);
       }
+      
+      console.log('✅ Успешная инициализация:', {
+        user: `${user.username} (${user.role})`,
+        tokenValid: isTokenValid(token)
+      });
+      
+      set({
+        user,
+        token,
+        isAuthenticated: true,
+      });
     } else {
-      console.log('❌ Нет токена или пользователя для инициализации');
+      console.log('❌ Нет валидного токена или пользователя для инициализации');
+      // Очищаем невалидные данные
+      clearAuthData();
     }
   },
 
@@ -175,12 +167,20 @@ export const useAuthStore = create<AuthState>((set) => ({
 
     const newUser = { ...currentUser, ...updatedUser };
     
-    // Обновляем localStorage
-    localStorage.setItem('user', JSON.stringify(newUser));
-    
-    // Обновляем store
-    set({ user: newUser });
-    
-    console.log('✅ Пользователь обновлен в store:', newUser);
+    // Безопасно обновляем данные
+    try {
+      const token = getStoredToken();
+      if (token) {
+        saveAuthData(token, newUser);
+      }
+      
+      // Обновляем store
+      set({ user: newUser });
+      
+      console.log('✅ Пользователь обновлен в store');
+    } catch (error) {
+      logError('Update User', error);
+      console.error('❌ Ошибка при обновлении пользователя:', error);
+    }
   },
 }));

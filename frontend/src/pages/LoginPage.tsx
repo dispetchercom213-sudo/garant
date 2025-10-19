@@ -46,7 +46,7 @@ export const LoginPage: React.FC = () => {
     }
   };
 
-  const from = (location.state as any)?.from?.pathname || (user ? getDefaultPageForRole(user.role) : '/dashboard');
+  const from = (location.state as any)?.from?.pathname || (user ? getDefaultPageForRole(user.role as UserRole) : '/dashboard');
 
   useEffect(() => {
     clearError();

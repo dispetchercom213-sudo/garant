@@ -3,7 +3,7 @@ import { type InternalRequest, RequestStatus } from '../types';
 import { Card, CardContent } from './ui/card';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
-import { CheckCircle, Calendar, DollarSign, Package, User } from 'lucide-react';
+import { Calendar, DollarSign, Package, User } from 'lucide-react';
 
 interface RequestCardProps {
   request: InternalRequest;
