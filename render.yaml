@@ -5,9 +5,10 @@ services:
     runtime: node
     region: frankfurt
     plan: free
-    buildCommand: cd backend && npm install && npx prisma generate && npm run build
-    preDeployCommand: cd backend && npx prisma migrate deploy && node create-users.js
-    startCommand: cd backend && npm run start:prod
+    rootDirectory: backend
+    buildCommand: npm install && npx prisma generate && npm run build
+    preDeployCommand: npx prisma migrate deploy && node create-users.js
+    startCommand: npm run start:prod
     envVars:
       - key: DATABASE_URL
         fromDatabase:
@@ -31,8 +32,9 @@ services:
     runtime: static
     region: frankfurt
     plan: free
-    buildCommand: cd frontend && npm install && npm run build
-    staticPublishPath: ./frontend/dist
+    rootDirectory: frontend
+    buildCommand: npm install && npm run build
+    staticPublishPath: ./dist
     envVars:
       - key: VITE_API_URL
         value: https://garant-beton-backend.onrender.com/api/v1
