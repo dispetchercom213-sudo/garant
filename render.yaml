@@ -34,7 +34,7 @@ services:
     staticPublishPath: ./frontend/dist
     envVars:
       - key: VITE_API_URL
-        value: https://garant-beton-backend.onrender.com/api/v1
+        value: https://garant-backend.onrender.com/api/v1
     routes:
       - type: rewrite
         source: /*
