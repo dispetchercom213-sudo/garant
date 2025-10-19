@@ -1,8 +1,12 @@
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { AppModule } from './app.module';
+import { initUsers } from './init-users';
 
 async function bootstrap() {
+  // Инициализация пользователей перед запуском приложения
+  await initUsers();
+  
   const app = await NestFactory.create(AppModule);
   
   // Глобальная валидация
