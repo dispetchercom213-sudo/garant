@@ -559,7 +559,7 @@ model OrderAdditionalService {
   totalAmount         Float             // quantity * price
   createdAt           DateTime          @default(now())
   order               Order             @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  additionalService   AdditionalService @relation(fields: [additionalServiceId], references: [id])
+  additionalService   AdditionalService @relation(fields: [additionalServiceId], references: [id], onDelete: Cascade)
 
   @@unique([orderId, additionalServiceId])
 }
