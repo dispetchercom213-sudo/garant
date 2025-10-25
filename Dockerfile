@@ -6,7 +6,7 @@ WORKDIR /app/backend
 COPY backend/package*.json ./
 COPY backend/prisma ./prisma/
 
-RUN npm ci --timeout=300000 --fetch-retry-mintimeout=20000
+RUN npm install --timeout=600000 --fetch-retry-mintimeout=30000 --fetch-retries=10
 
 COPY backend/ ./
 
@@ -20,7 +20,7 @@ WORKDIR /app/frontend
 
 COPY frontend/package*.json ./
 
-RUN npm ci --timeout=300000 --fetch-retry-mintimeout=20000
+RUN npm install --timeout=600000 --fetch-retry-mintimeout=30000 --fetch-retries=10
 
 COPY frontend/ ./
 
