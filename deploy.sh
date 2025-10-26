@@ -5,47 +5,16 @@ set -e
 
 echo "🚀 Начинаем развертывание GARANT BETON..."
 
-# Функция для ПОЛНОГО удаления aaPanel
-remove_aapanel() {
-    echo "🗑️  УДАЛЯЕМ AAPANEL ПОЛНОСТЬЮ..."
-    
-    # Останавливаем все службы
-    echo "   ⏹️  Останавливаем службы..."
-    sudo /etc/init.d/bt stop 2>/dev/null || true
-    sudo systemctl stop bt 2>/dev/null || true
-    sudo systemctl stop nginx 2>/dev/null || true
-    sudo systemctl stop apache2 2>/dev/null || true
-    sudo systemctl stop mysql 2>/dev/null || true
-    
-    # Деинсталлируем aaPanel
-    echo "   🗑️  Деинсталлируем aaPanel..."
-    if [ -f /etc/init.d/bt ]; then
-        sudo /etc/init.d/bt uninstall
-    fi
-    
-    # Удаляем все файлы и директории aaPanel
-    echo "   🗑️  Удаляем файлы aaPanel..."
-    sudo rm -rf /www
-    sudo rm -rf /usr/bin/bt
-    sudo rm -f /etc/init.d/bt
-    sudo rm -rf /etc/init.d/bt
-    sudo rm -rf /tmp/panelLock.pl
-    
-    # Удаляем конфигурационные файлы
-    sudo rm -rf /www/server
-    sudo rm -rf /usr/local/aapanel
-    sudo rm -rf /etc/systemd/system/bt.service 2>/dev/null || true
-    
-    # Очищаем порты
-    echo "   🔓 Освобождаем порты..."
-    sudo fuser -k 80/tcp 2>/dev/null || true
-    sudo fuser -k 443/tcp 2>/dev/null || true
-    
-    echo "✅ aaPanel ПОЛНОСТЬЮ удален!"
-}
+# Очищаем порты от старых сервисов
+echo "🔓 Освобождаем порты..."
+sudo fuser -k 80/tcp 2>/dev/null || true
+sudo fuser -k 443/tcp 2>/dev/null || true
+sudo fuser -k 3306/tcp 2>/dev/null || true
+sudo fuser -k 5432/tcp 2>/dev/null || true
 
-# Удаляем aaPanel
-remove_aapanel
+# Останавливаем старые Docker контейнеры
+echo "🐳 Очищаем старые контейнеры..."
+docker-compose down --remove-orphans 2>/dev/null || true
 
 # Проверяем наличие Docker
 if ! command -v docker &> /dev/null; then
