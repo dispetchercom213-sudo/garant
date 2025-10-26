@@ -5,35 +5,48 @@ set -e
 
 echo "🚀 Начинаем развертывание GARANT BETON..."
 
-# Функция для остановки и удаления aaPanel
-stop_aapanel() {
-    echo "🛑 Останавливаем aaPanel..."
+# Функция для полного удаления aaPanel
+remove_aapanel() {
+    echo "🗑️  Удаляем aaPanel..."
     
-    # Останавливаем Nginx
+    # Останавливаем и отключаем службы
     if systemctl is-active --quiet bt; then
         sudo /etc/init.d/bt stop
-        echo "   ✓ aaPanel Nginx остановлен"
+        sudo systemctl disable bt
+        echo "   ✓ aaPanel остановлен"
     fi
     
-    # Останавливаем Apache если установлен
     if systemctl is-active --quiet apache2; then
         sudo systemctl stop apache2
         sudo systemctl disable apache2
-        echo "   ✓ Apache остановлен"
     fi
     
-    # Останавливаем Nginx если работает как сервис
     if systemctl is-active --quiet nginx; then
         sudo systemctl stop nginx
         sudo systemctl disable nginx
-        echo "   ✓ Nginx остановлен"
     fi
     
-    echo "✅ aaPanel остановлен"
+    # Удаляем aaPanel
+    if [ -f /etc/init.d/bt ]; then
+        echo "   ✓ Удаляем файлы aaPanel..."
+        sudo /etc/init.d/bt stop
+        sudo /etc/init.d/bt uninstall
+        sudo rm -rf /www
+        sudo rm -rf /usr/bin/bt
+        sudo rm -f /etc/init.d/bt
+        echo "   ✓ aaPanel удален"
+    fi
+    
+    # Очищаем порты
+    echo "   ✓ Освобождаем порты 80 и 443..."
+    sudo fuser -k 80/tcp 2>/dev/null || true
+    sudo fuser -k 443/tcp 2>/dev/null || true
+    
+    echo "✅ aaPanel полностью удален"
 }
 
-# Останавливаем aaPanel
-stop_aapanel
+# Удаляем aaPanel
+remove_aapanel
 
 # Проверяем наличие Docker
 if ! command -v docker &> /dev/null; then
