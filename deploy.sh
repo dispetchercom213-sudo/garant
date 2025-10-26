@@ -5,44 +5,43 @@ set -e
 
 echo "🚀 Начинаем развертывание GARANT BETON..."
 
-# Функция для полного удаления aaPanel
+# Функция для ПОЛНОГО удаления aaPanel
 remove_aapanel() {
-    echo "🗑️  Удаляем aaPanel..."
+    echo "🗑️  УДАЛЯЕМ AAPANEL ПОЛНОСТЬЮ..."
     
-    # Останавливаем и отключаем службы
-    if systemctl is-active --quiet bt; then
-        sudo /etc/init.d/bt stop
-        sudo systemctl disable bt
-        echo "   ✓ aaPanel остановлен"
-    fi
+    # Останавливаем все службы
+    echo "   ⏹️  Останавливаем службы..."
+    sudo /etc/init.d/bt stop 2>/dev/null || true
+    sudo systemctl stop bt 2>/dev/null || true
+    sudo systemctl stop nginx 2>/dev/null || true
+    sudo systemctl stop apache2 2>/dev/null || true
+    sudo systemctl stop mysql 2>/dev/null || true
     
-    if systemctl is-active --quiet apache2; then
-        sudo systemctl stop apache2
-        sudo systemctl disable apache2
-    fi
-    
-    if systemctl is-active --quiet nginx; then
-        sudo systemctl stop nginx
-        sudo systemctl disable nginx
-    fi
-    
-    # Удаляем aaPanel
+    # Деинсталлируем aaPanel
+    echo "   🗑️  Деинсталлируем aaPanel..."
     if [ -f /etc/init.d/bt ]; then
-        echo "   ✓ Удаляем файлы aaPanel..."
-        sudo /etc/init.d/bt stop
         sudo /etc/init.d/bt uninstall
-        sudo rm -rf /www
-        sudo rm -rf /usr/bin/bt
-        sudo rm -f /etc/init.d/bt
-        echo "   ✓ aaPanel удален"
     fi
+    
+    # Удаляем все файлы и директории aaPanel
+    echo "   🗑️  Удаляем файлы aaPanel..."
+    sudo rm -rf /www
+    sudo rm -rf /usr/bin/bt
+    sudo rm -f /etc/init.d/bt
+    sudo rm -rf /etc/init.d/bt
+    sudo rm -rf /tmp/panelLock.pl
+    
+    # Удаляем конфигурационные файлы
+    sudo rm -rf /www/server
+    sudo rm -rf /usr/local/aapanel
+    sudo rm -rf /etc/systemd/system/bt.service 2>/dev/null || true
     
     # Очищаем порты
-    echo "   ✓ Освобождаем порты 80 и 443..."
+    echo "   🔓 Освобождаем порты..."
     sudo fuser -k 80/tcp 2>/dev/null || true
     sudo fuser -k 443/tcp 2>/dev/null || true
     
-    echo "✅ aaPanel полностью удален"
+    echo "✅ aaPanel ПОЛНОСТЬЮ удален!"
 }
 
 # Удаляем aaPanel
