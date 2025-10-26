@@ -8,7 +8,7 @@ services:
     environment:
       POSTGRES_DB: garant_beton
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: DMpydJOsv3NYt8Ef0eX6NR4=
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-DMpydJOsv3NYt8Ef0eX6NR4=}
       POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=ru_RU.UTF-8 --lc-ctype=ru_RU.UTF-8"
     ports:
       - "5432:5432"
@@ -29,18 +29,20 @@ services:
     container_name: garant-beton-backend
     restart: unless-stopped
     environment:
-      DATABASE_URL: postgresql://postgres:DMpydJOsv3NYt8Ef0eX6NR4=@db:5432/garant_beton
-      JWT_SECRET: garant-beton-super-secret-jwt-key-2025-production-min-32-chars
+      DATABASE_URL: postgresql://postgres:${DB_PASSWORD:-DMpydJOsv3NYt8Ef0eX6NR4=}@db:5432/garant_beton
+      JWT_SECRET: ${JWT_SECRET:-garant-beton-super-secret-jwt-key-2025-production-min-32-chars}
       NODE_ENV: production
       PORT: 4000
-      CORS_ORIGIN: https://gar-ant-bet-on.ru,http://gar-ant-bet-on.ru,https://www.gar-ant-bet-on.ru,http://www.gar-ant-bet-on.ru,http://78.40.109.177:3000,http://78.40.109.177
-      ORS_API_KEY: eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6ImU5MDVhYjg1MDEzOTRjNjZiYTdlMGQyZjk3YmU3YjZlIiwiaCI6Im11cm11cjY0In0=
+      CORS_ORIGIN: ${CORS_ORIGIN:-https://gar-ant-bet-on.ru,http://gar-ant-bet-on.ru,https://www.gar-ant-bet-on.ru,http://www.gar-ant-bet-on.ru,http://78.40.109.177}
+      ORS_API_KEY: ${ORS_API_KEY}
     ports:
       - "4000:4000"
     depends_on:
       - db
     networks:
       - garant-beton-network
+    volumes:
+      - ./backend/prisma:/app/backend/prisma:ro
     healthcheck:
       test: ["CMD", "node", "-e", "require('http').get('http://localhost:4000/api/v1/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
       interval: 30s
