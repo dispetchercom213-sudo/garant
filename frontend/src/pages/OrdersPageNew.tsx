@@ -14,7 +14,7 @@ import { PaymentType, OrderStatus, UserRole } from '../types';
 import { useNotifications } from '../hooks/useNotifications';
 import { useApiData } from '../hooks/useApiData';
 import { useAuthStore } from '../stores/authStore';
-import { Check, X, Truck, Clock, Edit } from 'lucide-react';
+import { Check, X, Truck, Clock, Edit, Trash2 } from 'lucide-react';
 
 export const OrdersPageNew: React.FC = () => {
   const [modalOpen, setModalOpen] = useState(false);

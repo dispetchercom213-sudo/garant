@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Container, Title, Card, Stack, Text, Group, Badge, Table, Loader, Center } from '@mantine/core';
+import { Container, Title, Card, Stack, Text, Badge, Table, Loader, Center } from '@mantine/core';
 import { driverWeighingHistoryApi } from '../services/api';
 import { notifications } from '@mantine/notifications';
 

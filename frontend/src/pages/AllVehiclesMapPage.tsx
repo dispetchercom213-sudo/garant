@@ -3,7 +3,6 @@ import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import { Box, Typography, Paper, Card, CardContent, Chip, CircularProgress, useMediaQuery, useTheme } from '@mui/material';
 import { LocalShipping, Person, Assignment, LocationOn } from '@mui/icons-material';
 import { invoicesApi } from '../services/api';
-import { useAuthStore } from '../stores/authStore';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 
@@ -76,7 +75,6 @@ export const AllVehiclesMapPage: React.FC = () => {
   const [vehicles, setVehicles] = useState<VehicleData[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const { user } = useAuthStore();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const isTablet = useMediaQuery(theme.breakpoints.down('md'));

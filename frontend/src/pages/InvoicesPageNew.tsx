@@ -2239,7 +2239,6 @@ const InvoicePrintComponent: React.FC<{ invoice: Invoice }> = ({ invoice }) => {
     
     // Формируем инициалы
     const firstInitial = firstName ? firstName.charAt(0).toUpperCase() + '.' : '';
-    const middleInitial = ''; // У нас нет отчества в структуре User
     
     // Формируем строку "Фамилия И."
     if (lastName && firstName) {

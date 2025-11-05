@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useEffect } from 'react';
-import { Box, Typography, Grid, Paper, Button, TextField, MenuItem, useMediaQuery, useTheme } from '@mui/material';
+import { Box, Typography, Grid, Paper, Button, TextField, useMediaQuery, useTheme } from '@mui/material';
 import { reportsApi } from '../services/api';
 import type { Order, Invoice } from '../types';
 
@@ -25,7 +25,6 @@ export const MyReportsPage: React.FC = () => {
   const [stats, setStats] = useState<any>(null);
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
-  const isTablet = useMediaQuery(theme.breakpoints.down('md'));
 
   // Фильтры
   const [dateFrom, setDateFrom] = useState<string>('');

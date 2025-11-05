@@ -79,7 +79,7 @@ export const DashboardPageNew: React.FC = () => {
   });
 
   // Загрузка всех накладных водителя для статистики
-  const { data: allDriverInvoicesResponse } = useApiData<any>({
+  const { data: allDriverInvoicesResponse } = useApiData<Invoice>({
     apiCall: isDriver ? () => invoicesApi.getMy({ limit: '100' }) : () => Promise.resolve({ data: [], meta: { total: 0, page: 1, limit: 100, totalPages: 0 } }),
     dependencies: [isDriver]
   });
@@ -87,9 +87,9 @@ export const DashboardPageNew: React.FC = () => {
   // Извлекаем массив накладных из ответа
   const allDriverInvoices = Array.isArray(allDriverInvoicesResponse) 
     ? allDriverInvoicesResponse 
-    : Array.isArray(allDriverInvoicesResponse?.data) 
-      ? allDriverInvoicesResponse.data 
-      : [];
+    : (Array.isArray((allDriverInvoicesResponse as any)?.data) 
+      ? (allDriverInvoicesResponse as any).data 
+      : []);
 
   // Загрузка транспорта водителя
   const { data: driverVehicles } = useApiData<Vehicle>({
