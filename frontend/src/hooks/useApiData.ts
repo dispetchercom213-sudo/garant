@@ -24,7 +24,10 @@ export function useApiData<T>({
       // Универсальная обработка разных форматов ответов API
       let responseData: T[] = [];
       
-      if (Array.isArray(response.data)) {
+      // Обработка null или undefined
+      if (response.data === null || response.data === undefined) {
+        responseData = [];
+      } else if (Array.isArray(response.data)) {
         responseData = response.data;
       } else if (response.data?.data && Array.isArray(response.data.data)) {
         responseData = response.data.data;

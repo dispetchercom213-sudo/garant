@@ -62,7 +62,7 @@ export const DashboardPageNew: React.FC = () => {
   // Загрузка данных для менеджера и клиента (только их заказы)
   const isManagerOrClient = isManager || isClient;
   const { data: managerStats } = useApiData<any>({
-    apiCall: isManagerOrClient ? () => reportsApi.getMyDashboard() : () => Promise.resolve({ data: null }),
+    apiCall: isManagerOrClient ? () => reportsApi.getMyDashboard() : () => Promise.resolve({ data: {} }),
     dependencies: [isManagerOrClient]
   });
 
@@ -105,7 +105,7 @@ export const DashboardPageNew: React.FC = () => {
 
   // Общая статистика для администраторов
   const { data: generalStatsResponse } = useApiData<any>({
-    apiCall: isAdmin ? () => reportsApi.getDashboard() : () => Promise.resolve({ data: null }),
+    apiCall: isAdmin ? () => reportsApi.getDashboard() : () => Promise.resolve({ data: {} }),
     dependencies: [isAdmin]
   });
 

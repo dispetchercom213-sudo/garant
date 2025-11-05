@@ -3,6 +3,8 @@
 ## Проблема
 Модуль notifications не загружен на сервер, поэтому эндпоинт `/api/v1/notifications/unread-count` возвращает 404.
 
+**ВАЖНО:** После загрузки файлов **обязательно перезапустите backend**, иначе изменения не вступят в силу!
+
 ## Решение
 
 ### Вариант 1: Загрузить только папку notifications (быстрее)
@@ -41,11 +43,19 @@ ls -la backend/dist/notifications/
 # - notifications.service.js
 # - и соответствующие .d.ts и .js.map файлы
 
-# Перезапустить backend
+# ВАЖНО: Перезапустить backend (без этого роуты не появятся!)
 docker-compose restart backend
 
+# Подождать 5-10 секунд для запуска
+sleep 5
+
 # Проверить логи - должны появиться роуты notifications
-docker-compose logs backend --tail=100 | grep -i notifications
+docker-compose logs backend --tail=200 | grep -i notifications
+
+# Должны увидеть строки вида:
+# [Nest] ... LOG [RoutesResolver] NotificationsController {/api/v1/notifications}: ...
+# [Nest] ... LOG [RouterExplorer] Mapped {/api/v1/notifications, GET} route
+# [Nest] ... LOG [RouterExplorer] Mapped {/api/v1/notifications/unread-count, GET} route
 ```
 
 ## Ожидаемый результат
