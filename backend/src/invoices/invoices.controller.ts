@@ -15,30 +15,68 @@ export class InvoicesController {
 
   @Post()
   @UseGuards(RolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.DEVELOPER, UserRole.DISPATCHER, UserRole.OPERATOR, UserRole.DRIVER)
-  create(@Body() createInvoiceDto: CreateInvoiceDto) {
-    return this.invoicesService.create(createInvoiceDto);
+  @Roles(UserRole.ADMIN, UserRole.DEVELOPER, UserRole.DISPATCHER, UserRole.OPERATOR, UserRole.DRIVER, UserRole.DIRECTOR)
+  create(@Body() createInvoiceDto: CreateInvoiceDto, @Request() req) {
+    return this.invoicesService.create(createInvoiceDto, req.user?.userId || req.user?.id);
   }
 
   @Get()
   @UseGuards(RolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.DEVELOPER, UserRole.DIRECTOR, UserRole.DISPATCHER, UserRole.OPERATOR, UserRole.ACCOUNTANT, UserRole.DRIVER)
+  @Roles(UserRole.ADMIN, UserRole.DEVELOPER, UserRole.DIRECTOR, UserRole.DISPATCHER, UserRole.OPERATOR, UserRole.ACCOUNTANT, UserRole.DRIVER, UserRole.CLIENT)
   findAll(
     @Query('page') page?: string,
     @Query('limit') limit?: string,
     @Query('search') search?: string,
     @Query('type') type?: InvoiceType,
+    @Request() req?,
   ) {
     const pageNum = page ? parseInt(page, 10) : 1;
     const limitNum = limit ? parseInt(limit, 10) : 10;
+    const user = req?.user;
+    // Для CLIENT показываем только приходные накладные (INCOME) по его заказам
+    if (user && user.role === UserRole.CLIENT) {
+      return this.invoicesService.findAllForClient(pageNum, limitNum, search, user.userId || user.id);
+    }
     return this.invoicesService.findAll(pageNum, limitNum, search, type);
   }
 
   @Get('stats')
   @UseGuards(RolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.DEVELOPER, UserRole.DIRECTOR, UserRole.DISPATCHER, UserRole.ACCOUNTANT)
+  @Roles(UserRole.ADMIN, UserRole.DEVELOPER, UserRole.DIRECTOR, UserRole.DISPATCHER, UserRole.OPERATOR, UserRole.ACCOUNTANT)
   getStats() {
     return this.invoicesService.getStats();
+  }
+
+  /**
+   * Получить транспорт по заказам менеджера для отображения на карте
+   * 
+   * Логика видимости транспорта:
+   * - Менеджер видит только транспорт, у которого накладная в активных статусах:
+   *   "в пути", "в доставке", "на разгрузке", "прибыл на объект", "выехал с объекта"
+   * - После сдачи бетона (статус накладной = "сдано" или "завершено") транспорт становится невидимым
+   * - Когда все накладные по заказу завершены, весь заказ считается выполненным
+   * 
+   * ВАЖНО: маршрут должен быть перед @Get(':id') для правильной маршрутизации
+   */
+  @Get('my-vehicles-map')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.MANAGER, UserRole.CLIENT)
+  getMyVehiclesForMap(@Request() req) {
+    const userId = req.user.userId || req.user.id;
+    console.log(`🗺️ Контроллер: Запрос транспорта для карты от менеджера ID: ${userId}, username: ${req.user.username}, role: ${req.user.role}, currentRole: ${req.user.currentRole}`);
+    return this.invoicesService.getVehiclesForManagerMap(userId);
+  }
+
+  /**
+   * Получить все транспортные средства в работе для отображения на карте
+   * Используется директором, диспетчером и оператором
+   */
+  @Get('all-vehicles-map')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.DEVELOPER, UserRole.DIRECTOR, UserRole.DISPATCHER, UserRole.OPERATOR)
+  getAllVehiclesForMap(@Request() req) {
+    console.log(`🗺️ Контроллер: Запрос всех машин в работе для карты от пользователя ID: ${req.user.userId || req.user.id}, username: ${req.user.username}, role: ${req.user.role}`);
+    return this.invoicesService.getAllVehiclesForMap();
   }
 
   // Эндпоинт для получения накладных текущего водителя
@@ -67,7 +105,7 @@ export class InvoicesController {
 
   @Get('driver/:driverId')
   @UseGuards(RolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.DEVELOPER, UserRole.DIRECTOR, UserRole.DISPATCHER, UserRole.DRIVER)
+  @Roles(UserRole.ADMIN, UserRole.DEVELOPER, UserRole.DIRECTOR, UserRole.DISPATCHER, UserRole.OPERATOR, UserRole.DRIVER)
   getInvoicesByDriver(
     @Param('driverId') driverId: string,
     @Query('page') page?: string,
@@ -111,7 +149,7 @@ export class InvoicesController {
 
   @Delete(':id')
   @UseGuards(RolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.DEVELOPER)
+  @Roles(UserRole.ADMIN, UserRole.DEVELOPER, UserRole.DIRECTOR, UserRole.DISPATCHER, UserRole.OPERATOR)
   remove(@Param('id') id: string) {
     return this.invoicesService.remove(+id);
   }

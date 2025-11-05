@@ -1,13 +1,18 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Inject, forwardRef } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { CreateInvoiceDto } from './dto/create-invoice.dto';
 import { UpdateInvoiceDto } from './dto/update-invoice.dto';
 import { CreateInvoiceItemDto } from './dto/create-invoice-item.dto';
-import { InvoiceType } from '@prisma/client';
+import { InvoiceType, UserRole, NotificationType, OrderStatus } from '@prisma/client';
+import { NotificationsService } from '../notifications/notifications.service';
 
 @Injectable()
 export class InvoicesService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    @Inject(forwardRef(() => NotificationsService))
+    private notificationsService: NotificationsService,
+  ) {}
 
   // Получить ID водителя по ID пользователя
   async getDriverIdByUserId(userId: number): Promise<number> {
@@ -24,38 +29,54 @@ export class InvoicesService {
     return driver.id;
   }
 
-  async create(createInvoiceDto: CreateInvoiceDto) {
+  async create(createInvoiceDto: CreateInvoiceDto, userId?: number) {
     try {
       console.log('📝 Создание накладной. DTO:', JSON.stringify(createInvoiceDto, null, 2));
       
       // Генерируем номер накладной
       const invoiceNumber = await this.generateInvoiceNumber(createInvoiceDto.type);
 
-    // Для расходных накладных проверяем и уменьшаем количество в заказе
+    // КРИТИЧЕСКИ ВАЖНО: Изначальный объем заказа (quantityM3) НИКОГДА не должен изменяться!
+    // Это изначальный объем заказа, который устанавливается при создании и остается неизменным.
+    // Для отображения прогресса используем сумму накладных, а не уменьшение quantityM3 заказа.
+    // Проверяем, что сумма всех накладных по заказу не превышает изначальный объем
     if (createInvoiceDto.type === InvoiceType.EXPENSE && createInvoiceDto.orderId && createInvoiceDto.quantityM3) {
       const order = await this.prisma.order.findUnique({
         where: { id: createInvoiceDto.orderId },
-        select: { id: true, quantityM3: true }
+        select: { 
+          id: true, 
+          quantityM3: true,
+          invoices: {
+            select: { quantityM3: true }
+          }
+        }
       });
 
       if (!order) {
         throw new BadRequestException('Заказ не найден');
       }
 
-      // Проверяем, достаточно ли количества в заказе
-      if (order.quantityM3 < createInvoiceDto.quantityM3) {
+      // Сохраняем изначальный объем для проверки после создания накладной
+      const initialOrderQuantity = order.quantityM3;
+
+      // Считаем уже отгруженный объем по всем накладным (включая текущую)
+      const totalInvoicedQuantity = order.invoices.reduce((sum, inv) => sum + (inv.quantityM3 || 0), 0);
+      const newTotalQuantity = totalInvoicedQuantity + createInvoiceDto.quantityM3;
+
+      // Проверяем, что сумма всех накладных не превышает изначальный объем заказа
+      if (newTotalQuantity > order.quantityM3) {
+        const remaining = order.quantityM3 - totalInvoicedQuantity;
         throw new BadRequestException(
-          `Недостаточно количества в заказе. Доступно: ${order.quantityM3} м³, запрошено: ${createInvoiceDto.quantityM3} м³`
+          `Превышен изначальный объем заказа. Изначальный объем: ${order.quantityM3} м³, ` +
+          `уже отгружено: ${totalInvoicedQuantity.toFixed(1)} м³, ` +
+          `осталось: ${remaining.toFixed(1)} м³, ` +
+          `запрошено: ${createInvoiceDto.quantityM3} м³`
         );
       }
 
-      // Уменьшаем количество в заказе
-      await this.prisma.order.update({
-        where: { id: createInvoiceDto.orderId },
-        data: {
-          quantityM3: order.quantityM3 - createInvoiceDto.quantityM3
-        }
-      });
+      // КРИТИЧЕСКИ ВАЖНО: НЕ изменяем quantityM3 заказа - это изначальный объем, который должен оставаться неизменным
+      // После создания накладной проверим, что quantityM3 заказа не изменился
+      console.log(`✅ Создание накладной для заказа ${order.id}. Изначальный объем заказа: ${initialOrderQuantity} м³ (не будет изменен)`);
     }
 
     // Рассчитываем расстояние если не указано
@@ -72,7 +93,47 @@ export class InvoicesService {
     // Добавляем 20% к расстоянию
     const adjustedDistance = distanceKm ? distanceKm * 1.2 : 0;
 
-    return this.prisma.invoice.create({
+    // Сохраняем изначальный объем заказа для проверки после создания (если это расходная накладная)
+    let orderIdToCheck: number | undefined;
+    let expectedOrderQuantity: number | undefined;
+    if (createInvoiceDto.type === InvoiceType.EXPENSE && createInvoiceDto.orderId) {
+      const orderCheck = await this.prisma.order.findUnique({
+        where: { id: createInvoiceDto.orderId },
+        select: { id: true, quantityM3: true }
+      });
+      if (orderCheck) {
+        orderIdToCheck = orderCheck.id;
+        expectedOrderQuantity = orderCheck.quantityM3;
+      }
+    }
+
+    // Автоматически заполняем releasedByFio для расходных накладных на основе создателя
+    let releasedByFio = createInvoiceDto.releasedByFio;
+    if (!releasedByFio && createInvoiceDto.type === InvoiceType.EXPENSE && userId) {
+      const creator = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { firstName: true, lastName: true, username: true, login: true }
+      });
+      
+      if (creator) {
+        const lastName = creator.lastName || '';
+        const firstName = creator.firstName || '';
+        
+        if (lastName && firstName) {
+          // Формат "Фамилия И."
+          releasedByFio = `${lastName} ${firstName.charAt(0).toUpperCase()}.`;
+        } else if (lastName) {
+          releasedByFio = lastName;
+        } else if (firstName) {
+          releasedByFio = firstName;
+        } else {
+          // Если нет имени и фамилии, используем логин
+          releasedByFio = creator.username || creator.login || undefined;
+        }
+      }
+    }
+
+    const createdInvoice = await this.prisma.invoice.create({
       data: {
         invoiceNumber,
         type: createInvoiceDto.type,
@@ -82,7 +143,7 @@ export class InvoicesService {
         warehouseId: createInvoiceDto.warehouseId || undefined,
         customerId: createInvoiceDto.customerId || undefined,
         supplierId: createInvoiceDto.supplierId || undefined,
-        createdById: createInvoiceDto.createdById || 1, // временно используем ID 1
+        createdById: userId || createInvoiceDto.createdById || 1,
         concreteMarkId: createInvoiceDto.concreteMarkId || undefined,
         quantityM3: createInvoiceDto.quantityM3 || undefined,
         slumpValue: createInvoiceDto.slumpValue || undefined,
@@ -100,7 +161,7 @@ export class InvoicesService {
         vehicleId: createInvoiceDto.vehicleId || undefined,
         driverId: createInvoiceDto.driverId || undefined,
         dispatcherId: createInvoiceDto.dispatcherId || undefined,
-        releasedByFio: createInvoiceDto.releasedByFio || undefined,
+        releasedByFio: releasedByFio,
         receivedByFio: createInvoiceDto.receivedByFio || undefined,
         basePricePerM3: createInvoiceDto.basePricePerM3 || undefined,
         salePricePerM3: createInvoiceDto.salePricePerM3 || undefined,
@@ -148,6 +209,33 @@ export class InvoicesService {
         },
       },
     });
+
+    // КРИТИЧЕСКАЯ ПРОВЕРКА: Убеждаемся, что quantityM3 заказа НЕ изменился после создания накладной
+    if (orderIdToCheck !== undefined && expectedOrderQuantity !== undefined) {
+      const orderAfterCreate = await this.prisma.order.findUnique({
+        where: { id: orderIdToCheck },
+        select: { id: true, quantityM3: true }
+      });
+
+      if (orderAfterCreate && orderAfterCreate.quantityM3 !== expectedOrderQuantity) {
+        console.error('🚨 КРИТИЧЕСКАЯ ОШИБКА: quantityM3 заказа изменился после создания накладной!');
+        console.error(`   Заказ ID: ${orderIdToCheck}`);
+        console.error(`   Ожидалось: ${expectedOrderQuantity} м³`);
+        console.error(`   Получено: ${orderAfterCreate.quantityM3} м³`);
+        console.error(`   Разница: ${orderAfterCreate.quantityM3 - expectedOrderQuantity} м³`);
+        
+        // Восстанавливаем правильное значение
+        await this.prisma.order.update({
+          where: { id: orderIdToCheck },
+          data: { quantityM3: expectedOrderQuantity }
+        });
+        console.error('   ✅ Значение восстановлено вручную');
+      } else {
+        console.log(`✅ Проверка: quantityM3 заказа ${orderIdToCheck} остался неизменным (${expectedOrderQuantity} м³)`);
+      }
+    }
+
+    return createdInvoice;
     } catch (error) {
       console.error('❌ Ошибка при создании накладной:', error);
       throw error;
@@ -177,6 +265,29 @@ export class InvoicesService {
     
     if (type) {
       andConditions.push({ type });
+      
+      // Для расходных накладных показываем только те, где заказ одобрен директором или уже в процессе выполнения
+      if (type === InvoiceType.EXPENSE) {
+        andConditions.push({
+          OR: [
+            // Либо заказ одобрен директором или находится в процессе выполнения
+            { order: { 
+              status: { 
+                in: [
+                  OrderStatus.APPROVED_BY_DIRECTOR,
+                  OrderStatus.PENDING_DISPATCHER,
+                  OrderStatus.DISPATCHED,
+                  OrderStatus.IN_DELIVERY,
+                  OrderStatus.DELIVERED,
+                  OrderStatus.COMPLETED
+                ]
+              }
+            } },
+            // Либо накладная не привязана к заказу (для случаев без заказа)
+            { orderId: null },
+          ]
+        });
+      }
     }
     
     // Добавляем AND только если есть условия
@@ -218,6 +329,76 @@ export class InvoicesService {
               warehouseTransactions: true,
             },
           },
+        },
+        orderBy: {
+          createdAt: 'desc',
+        },
+        skip,
+        take: limit,
+      }),
+      this.prisma.invoice.count({ where }),
+    ]);
+
+    return {
+      data: invoices,
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
+  }
+
+  // Метод для получения накладных клиента (только приходные по его заказам)
+  async findAllForClient(page: number = 1, limit: number = 10, search?: string, userId?: number) {
+    const skip = (page - 1) * limit;
+    
+    const where: any = {
+      type: InvoiceType.INCOME, // Только приходные накладные
+      order: {
+        createdById: userId, // Только по заказам, созданным клиентом
+      },
+    };
+    
+    const andConditions: any[] = [];
+    
+    if (search) {
+      andConditions.push({
+        OR: [
+          { invoiceNumber: { contains: search, mode: 'insensitive' as const } },
+          { departureAddress: { contains: search, mode: 'insensitive' as const } },
+          { contractNumber: { contains: search, mode: 'insensitive' as const } },
+          { customer: { name: { contains: search, mode: 'insensitive' as const } } },
+          { concreteMark: { name: { contains: search, mode: 'insensitive' as const } } },
+          { vehicle: { plate: { contains: search, mode: 'insensitive' as const } } },
+        ]
+      });
+    }
+    
+    if (andConditions.length > 0) {
+      where.AND = andConditions;
+    }
+    
+    const [invoices, total] = await Promise.all([
+      this.prisma.invoice.findMany({
+        where,
+        include: {
+          customer: true,
+          supplier: true,
+          company: true,
+          concreteMark: true,
+          driver: true,
+          vehicle: true,
+          warehouse: true,
+          createdBy: true,
+          dispatcher: true,
+          items: {
+            include: {
+              material: true,
+            },
+          },
+          order: true,
         },
         orderBy: {
           createdAt: 'desc',
@@ -310,7 +491,8 @@ export class InvoicesService {
       throw new BadRequestException('Нельзя изменить доставленную накладную');
     }
 
-    // Для расходных накладных пересчитываем количество в заказе при изменении
+    // ВАЖНО: Изначальный объем заказа (quantityM3) НЕ должен изменяться!
+    // Для расходных накладных проверяем, что сумма всех накладных не превышает изначальный объем
     if (invoice.type === InvoiceType.EXPENSE && invoice.orderId && updateInvoiceDto.quantityM3 !== undefined) {
       const oldQuantity = invoice.quantityM3 || 0;
       const newQuantity = updateInvoiceDto.quantityM3;
@@ -319,27 +501,38 @@ export class InvoicesService {
       if (difference !== 0) {
         const order = await this.prisma.order.findUnique({
           where: { id: invoice.orderId },
-          select: { id: true, quantityM3: true }
+          select: { 
+            id: true, 
+            quantityM3: true,
+            invoices: {
+              select: { 
+                id: true,
+                quantityM3: true 
+              }
+            }
+          }
         });
 
         if (order) {
-          // Если увеличиваем количество в накладной - уменьшаем в заказе
-          // Если уменьшаем количество в накладной - увеличиваем в заказе
-          const newOrderQuantity = order.quantityM3 - difference;
+          // Считаем сумму всех накладных (включая текущую с новым значением)
+          const totalInvoicedQuantity = order.invoices
+            .filter(inv => inv.id !== invoice.id) // Исключаем текущую накладную
+            .reduce((sum, inv) => sum + (inv.quantityM3 || 0), 0);
+          
+          const newTotalQuantity = totalInvoicedQuantity + newQuantity;
 
-          // Проверяем, что в заказе достаточно количества
-          if (newOrderQuantity < 0) {
+          // Проверяем, что сумма всех накладных не превышает изначальный объем заказа
+          if (newTotalQuantity > order.quantityM3) {
+            const remaining = order.quantityM3 - totalInvoicedQuantity;
             throw new BadRequestException(
-              `Недостаточно количества в заказе. Доступно: ${order.quantityM3} м³, требуется дополнительно: ${difference} м³`
+              `Превышен изначальный объем заказа. Изначальный объем: ${order.quantityM3} м³, ` +
+              `уже отгружено (без этой накладной): ${totalInvoicedQuantity.toFixed(1)} м³, ` +
+              `осталось: ${remaining.toFixed(1)} м³, ` +
+              `запрошено: ${newQuantity} м³`
             );
           }
 
-          await this.prisma.order.update({
-            where: { id: invoice.orderId },
-            data: {
-              quantityM3: newOrderQuantity
-            }
-          });
+          // НЕ изменяем quantityM3 заказа - это изначальный объем, который должен оставаться неизменным
         }
       }
     }
@@ -449,44 +642,16 @@ export class InvoicesService {
       throw new BadRequestException('Нельзя удалить доставленную накладную');
     }
 
-    // Для расходных накладных возвращаем количество обратно в заказ
-    if (invoice.type === InvoiceType.EXPENSE && invoice.orderId && invoice.quantityM3) {
-      console.log('🔙 Возврат количества в заказ при удалении накладной:', {
-        invoiceId: invoice.id,
-        invoiceNumber: invoice.invoiceNumber,
-        orderId: invoice.orderId,
-        quantityToReturn: invoice.quantityM3
-      });
-
-      const order = await this.prisma.order.findUnique({
-        where: { id: invoice.orderId },
-        select: { id: true, quantityM3: true }
-      });
-
-      if (order) {
-        console.log('📊 Текущее количество в заказе:', order.quantityM3);
-        const newQuantity = order.quantityM3 + invoice.quantityM3;
-        console.log('➕ Новое количество в заказе:', newQuantity);
-        
-        // Возвращаем количество обратно в заказ
-        await this.prisma.order.update({
-          where: { id: invoice.orderId },
-          data: {
-            quantityM3: newQuantity
-          }
-        });
-        
-        console.log('✅ Количество успешно возвращено в заказ');
-      } else {
-        console.log('⚠️ Заказ не найден:', invoice.orderId);
-      }
-    } else {
-      console.log('ℹ️ Возврат количества не требуется:', {
-        type: invoice.type,
-        orderId: invoice.orderId,
-        quantityM3: invoice.quantityM3
-      });
-    }
+    // ВАЖНО: Изначальный объем заказа (quantityM3) НИКОГДА не должен изменяться!
+    // При удалении накладной мы НЕ возвращаем количество обратно в заказ.
+    // Изначальный объем заказа - это константа, которая не зависит от накладных.
+    console.log('🗑️  Удаление накладной:', {
+      invoiceId: invoice.id,
+      invoiceNumber: invoice.invoiceNumber,
+      orderId: invoice.orderId,
+      quantityM3: invoice.quantityM3,
+      note: 'Изначальный объем заказа НЕ будет изменен'
+    });
 
     // Удаляем связанные записи
     await this.prisma.invoiceItem.deleteMany({
@@ -895,7 +1060,15 @@ export class InvoicesService {
   async acceptInvoice(invoiceId: number, userId: number) {
     const invoice = await this.prisma.invoice.findUnique({
       where: { id: invoiceId },
-      include: { driver: true },
+      include: { 
+        driver: true,
+        vehicle: true,
+        order: {
+          include: {
+            createdBy: true,
+          },
+        },
+      },
     });
 
     if (!invoice) {
@@ -911,18 +1084,43 @@ export class InvoicesService {
       throw new BadRequestException('Накладная уже принята');
     }
 
-    return this.prisma.invoice.update({
+    const updatedInvoice = await this.prisma.invoice.update({
       where: { id: invoiceId },
       data: {
         driverAcceptedAt: new Date(),
+        // Обновляем статус: водитель принял накладную = в пути
+        status: 'IN_TRANSIT', // В пути к объекту
       },
       include: {
         driver: true,
         vehicle: true,
         customer: true,
         concreteMark: true,
+        order: {
+          include: {
+            createdBy: true,
+          },
+        },
       },
     });
+
+    // Создаем уведомление для менеджера о том, что транспорт начал доставку
+    try {
+      if (updatedInvoice.order?.createdBy) {
+        await this.notificationsService.createNotification(
+          updatedInvoice.order.createdBy.id,
+          NotificationType.TRANSPORT_STARTED,
+          'Транспорт начал доставку',
+          `Транспорт №${updatedInvoice.vehicle?.plate || 'N/A'} выехал по заказу №${updatedInvoice.order.orderNumber}`,
+          updatedInvoice.id,
+          'invoice',
+        );
+      }
+    } catch (error) {
+      console.error('Ошибка при создании уведомления о начале доставки:', error);
+    }
+
+    return updatedInvoice;
   }
 
   // Отметить прибытие на объект
@@ -1012,6 +1210,8 @@ export class InvoicesService {
         arrivedSiteLatitude: latitude,
         arrivedSiteLongitude: longitude,
         ...(distanceKm !== undefined && { distanceKm }),
+        // Обновляем статус накладной: прибыл на объект = в доставке/на разгрузке
+        status: 'UNLOADING', // На разгрузке
       },
     });
   }
@@ -1045,6 +1245,8 @@ export class InvoicesService {
         departedSiteAt: new Date(),
         departedSiteLatitude: latitude,
         departedSiteLongitude: longitude,
+        // Обновляем статус: выехал с объекта = в пути обратно
+        status: 'IN_TRANSIT', // В пути обратно на завод
       },
     });
   }
@@ -1053,7 +1255,15 @@ export class InvoicesService {
   async markArrivedAtPlant(invoiceId: number, userId: number, latitude?: number, longitude?: number) {
     const invoice = await this.prisma.invoice.findUnique({
       where: { id: invoiceId },
-      include: { driver: true },
+      include: { 
+        driver: true,
+        vehicle: true,
+        order: {
+          include: {
+            createdBy: true,
+          },
+        },
+      },
     });
 
     if (!invoice) {
@@ -1083,15 +1293,91 @@ export class InvoicesService {
       );
     }
 
-    return this.prisma.invoice.update({
+    const updatedInvoice = await this.prisma.invoice.update({
       where: { id: invoiceId },
       data: {
         arrivedPlantAt: new Date(),
         arrivedPlantLatitude: latitude,
         arrivedPlantLongitude: longitude,
         totalDistanceKm: totalDistance > 0 ? totalDistance : undefined,
+        // Обновляем статус: вернулся на завод = доставлено/завершено
+        status: 'DELIVERED', // Сдано/завершено
+      },
+      include: {
+        order: {
+          include: {
+            createdBy: true,
+          },
+        },
+        vehicle: true,
       },
     });
+
+    // Создаем уведомление для менеджера о том, что накладная завершена
+    try {
+      if (updatedInvoice.order?.createdBy) {
+        await this.notificationsService.createNotification(
+          updatedInvoice.order.createdBy.id,
+          NotificationType.INVOICE_COMPLETED,
+          'Транспорт сдал бетон',
+          `Машина №${updatedInvoice.vehicle?.plate || 'N/A'} завершила доставку по накладной №${updatedInvoice.invoiceNumber}`,
+          updatedInvoice.id,
+          'invoice',
+        );
+
+        // Проверяем, все ли накладные по заказу завершены
+        if (updatedInvoice.orderId) {
+          const orderInvoices = await this.prisma.invoice.findMany({
+            where: {
+              orderId: updatedInvoice.orderId,
+            },
+            select: {
+              status: true,
+            },
+          });
+
+          const allCompleted = orderInvoices.every(
+            inv => inv.status === 'DELIVERED' || inv.status === 'COMPLETED' || inv.status === 'сдано' || inv.status === 'завершено'
+          );
+
+          if (allCompleted && orderInvoices.length > 0) {
+            // Обновляем статус заказа на COMPLETED
+            await this.prisma.order.update({
+              where: { id: updatedInvoice.orderId },
+              data: { status: OrderStatus.COMPLETED },
+            });
+
+            // Создаем уведомление для всех участников заказа о завершении
+            const order = await this.prisma.order.findUnique({
+              where: { id: updatedInvoice.orderId },
+              include: {
+                createdBy: true,
+              },
+            });
+
+            if (order) {
+              const participantRoles: UserRole[] = [UserRole.MANAGER, UserRole.DISPATCHER, UserRole.ACCOUNTANT, UserRole.SUPPLIER];
+              if (order.createdBy && !participantRoles.includes(order.createdBy.role)) {
+                participantRoles.push(order.createdBy.role);
+              }
+
+              await this.notificationsService.createNotificationsForRoles(
+                participantRoles,
+                NotificationType.ORDER_COMPLETED,
+                'Заказ полностью выполнен',
+                `Заказ №${order.orderNumber} закрыт`,
+                order.id,
+                'order',
+              );
+            }
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Ошибка при создании уведомления о завершении доставки:', error);
+    }
+
+    return updatedInvoice;
   }
 
   // Расчёт расстояния маршрута через OpenRouteService API
@@ -1175,5 +1461,354 @@ export class InvoicesService {
       }
       throw error;
     }
+  }
+
+  // Получить транспорт по заказам менеджера для отображения на карте
+  async getVehiclesForManagerMap(userId: number) {
+    // Определяем активные статусы накладных (видимы менеджеру)
+    // Активные: "в пути", "в доставке", "на разгрузке"
+    // Неактивные (невидимы): "сдано", "завершено", "DELIVERED", "COMPLETED"
+    const activeStatuses = [
+      'PENDING',           // Ожидает
+      'IN_TRANSIT',        // В пути
+      'IN_DELIVERY',       // В доставке
+      'UNLOADING',         // На разгрузке
+      'ARRIVED',           // Прибыл на объект
+      'DEPARTED',          // Выехал с объекта
+    ];
+    
+    const inactiveStatuses = [
+      'DELIVERED',         // Сдано
+      'COMPLETED',         // Завершено
+      'сдано',
+      'завершено',
+    ];
+
+    // Получаем активные накладные, связанные с заказами менеджера
+    const invoices = await this.prisma.invoice.findMany({
+      where: {
+        order: {
+          createdById: userId,
+        },
+        vehicleId: {
+          not: null,
+        },
+        // Фильтруем только активные накладные (исключаем завершенные статусы)
+        // Менеджер видит только накладные в активных статусах: "в пути", "в доставке", "на разгрузке"
+        // И не видит: "сдано", "завершено", "DELIVERED", "COMPLETED"
+        OR: [
+          // Если статус null - считаем активной (еще не завершена)
+          { status: null },
+          // Если статус в списке активных
+          { status: { in: activeStatuses } },
+        ],
+        // Исключаем завершенные статусы
+        NOT: {
+          status: { in: inactiveStatuses },
+        },
+      },
+      include: {
+        vehicle: {
+          include: {
+            drivers: {
+              include: {
+                user: {
+                  select: {
+                    id: true,
+                    firstName: true,
+                    lastName: true,
+                    phone: true,
+                  },
+                },
+              },
+            },
+          },
+        },
+        driver: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            phone: true,
+          },
+        },
+        order: {
+          select: {
+            id: true,
+            orderNumber: true,
+            deliveryAddress: true,
+            coordinates: true,
+          },
+        },
+        customer: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+        warehouse: {
+          select: {
+            id: true,
+            name: true,
+            latitude: true,
+            longitude: true,
+          },
+        },
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
+    });
+
+    // Группируем по транспортным средствам и возвращаем уникальные с последними координатами
+    const vehiclesMap = new Map();
+    
+    invoices.forEach((invoice) => {
+      if (!invoice.vehicle) return;
+      
+      const vehicleId = invoice.vehicle.id;
+      const existing = vehiclesMap.get(vehicleId);
+      
+      // Определяем текущие координаты транспорта
+      let latitude: number | null = null;
+      let longitude: number | null = null;
+      let status = 'unknown';
+      
+      // Приоритет координат: последние известные координаты
+      if (invoice.arrivedSiteLatitude && invoice.arrivedSiteLongitude) {
+        latitude = invoice.arrivedSiteLatitude;
+        longitude = invoice.arrivedSiteLongitude;
+        status = 'arrived';
+      } else if (invoice.departedSiteLatitude && invoice.departedSiteLongitude) {
+        latitude = invoice.departedSiteLatitude;
+        longitude = invoice.departedSiteLongitude;
+        status = 'departed';
+      } else if (invoice.arrivedPlantLatitude && invoice.arrivedPlantLongitude) {
+        latitude = invoice.arrivedPlantLatitude;
+        longitude = invoice.arrivedPlantLongitude;
+        status = 'at_plant';
+      } else if (invoice.latitudeTo && invoice.longitudeTo) {
+        latitude = invoice.latitudeTo;
+        longitude = invoice.longitudeTo;
+        status = 'in_transit';
+      } else if (invoice.warehouse?.latitude && invoice.warehouse?.longitude) {
+        latitude = invoice.warehouse.latitude;
+        longitude = invoice.warehouse.longitude;
+        status = 'at_warehouse';
+      }
+      
+      if (!existing || (invoice.updatedAt > new Date(existing.lastUpdate || 0))) {
+        vehiclesMap.set(vehicleId, {
+          vehicle: {
+            id: invoice.vehicle.id,
+            plate: invoice.vehicle.plate,
+            type: invoice.vehicle.type,
+            capacity: invoice.vehicle.capacity,
+          },
+          driver: invoice.driver ? {
+            id: invoice.driver.id,
+            firstName: invoice.driver.firstName,
+            lastName: invoice.driver.lastName,
+            phone: invoice.driver.phone,
+          } : null,
+          invoice: {
+            id: invoice.id,
+            invoiceNumber: invoice.invoiceNumber,
+            quantityM3: invoice.quantityM3,
+            status: invoice.status, // Статус накладной для отображения на карте
+          },
+          order: invoice.order ? {
+            id: invoice.order.id,
+            orderNumber: invoice.order.orderNumber,
+            deliveryAddress: invoice.order.deliveryAddress,
+            coordinates: invoice.order.coordinates,
+          } : null,
+          customer: invoice.customer,
+          latitude,
+          longitude,
+          status,
+          lastUpdate: invoice.updatedAt,
+        });
+      }
+    });
+
+    return Array.from(vehiclesMap.values());
+  }
+
+  /**
+   * Получить все транспортные средства в работе для отображения на карте
+   * Используется директором, диспетчером и оператором для просмотра всех машин в линии
+   */
+  async getAllVehiclesForMap() {
+    // Определяем активные статусы накладных (машины в работе)
+    const activeStatuses = [
+      'PENDING',           // Ожидает
+      'IN_TRANSIT',        // В пути
+      'IN_DELIVERY',       // В доставке
+      'UNLOADING',         // На разгрузке
+      'ARRIVED',           // Прибыл на объект
+      'DEPARTED',          // Выехал с объекта
+    ];
+    
+    const inactiveStatuses = [
+      'DELIVERED',         // Сдано
+      'COMPLETED',         // Завершено
+      'сдано',
+      'завершено',
+    ];
+
+    // Получаем все активные накладные (без фильтрации по менеджеру)
+    const invoices = await this.prisma.invoice.findMany({
+      where: {
+        vehicleId: {
+          not: null,
+        },
+        // Фильтруем только активные накладные (исключаем завершенные статусы)
+        OR: [
+          // Если статус null - считаем активной (еще не завершена)
+          { status: null },
+          // Если статус в списке активных
+          { status: { in: activeStatuses } },
+        ],
+        // Исключаем завершенные статусы
+        NOT: {
+          status: { in: inactiveStatuses },
+        },
+      },
+      include: {
+        vehicle: {
+          include: {
+            drivers: {
+              include: {
+                user: {
+                  select: {
+                    id: true,
+                    firstName: true,
+                    lastName: true,
+                    phone: true,
+                  },
+                },
+              },
+            },
+          },
+        },
+        driver: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            phone: true,
+          },
+        },
+        order: {
+          select: {
+            id: true,
+            orderNumber: true,
+            deliveryAddress: true,
+            coordinates: true,
+            createdBy: {
+              select: {
+                id: true,
+                username: true,
+                firstName: true,
+                lastName: true,
+              },
+            },
+          },
+        },
+        customer: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+        warehouse: {
+          select: {
+            id: true,
+            name: true,
+            latitude: true,
+            longitude: true,
+          },
+        },
+      },
+      orderBy: {
+        updatedAt: 'desc',
+      },
+    });
+
+    // Группируем по транспортным средствам и возвращаем уникальные с последними координатами
+    const vehiclesMap = new Map();
+    
+    invoices.forEach((invoice) => {
+      if (!invoice.vehicle) return;
+      
+      const vehicleId = invoice.vehicle.id;
+      const existing = vehiclesMap.get(vehicleId);
+      
+      // Определяем текущие координаты транспорта
+      let latitude: number | null = null;
+      let longitude: number | null = null;
+      let status = 'unknown';
+      
+      // Приоритет координат: последние известные координаты
+      if (invoice.arrivedSiteLatitude && invoice.arrivedSiteLongitude) {
+        latitude = invoice.arrivedSiteLatitude;
+        longitude = invoice.arrivedSiteLongitude;
+        status = 'arrived';
+      } else if (invoice.departedSiteLatitude && invoice.departedSiteLongitude) {
+        latitude = invoice.departedSiteLatitude;
+        longitude = invoice.departedSiteLongitude;
+        status = 'departed';
+      } else if (invoice.arrivedPlantLatitude && invoice.arrivedPlantLongitude) {
+        latitude = invoice.arrivedPlantLatitude;
+        longitude = invoice.arrivedPlantLongitude;
+        status = 'at_plant';
+      } else if (invoice.latitudeTo && invoice.longitudeTo) {
+        latitude = invoice.latitudeTo;
+        longitude = invoice.longitudeTo;
+        status = 'in_transit';
+      } else if (invoice.warehouse?.latitude && invoice.warehouse?.longitude) {
+        latitude = invoice.warehouse.latitude;
+        longitude = invoice.warehouse.longitude;
+        status = 'at_warehouse';
+      }
+      
+      if (!existing || (invoice.updatedAt > new Date(existing.lastUpdate || 0))) {
+        vehiclesMap.set(vehicleId, {
+          vehicle: {
+            id: invoice.vehicle.id,
+            plate: invoice.vehicle.plate,
+            type: invoice.vehicle.type,
+            capacity: invoice.vehicle.capacity,
+          },
+          driver: invoice.driver ? {
+            id: invoice.driver.id,
+            firstName: invoice.driver.firstName,
+            lastName: invoice.driver.lastName,
+            phone: invoice.driver.phone,
+          } : null,
+          invoice: {
+            id: invoice.id,
+            invoiceNumber: invoice.invoiceNumber,
+            quantityM3: invoice.quantityM3,
+            status: invoice.status,
+          },
+          order: invoice.order ? {
+            id: invoice.order.id,
+            orderNumber: invoice.order.orderNumber,
+            deliveryAddress: invoice.order.deliveryAddress,
+            coordinates: invoice.order.coordinates,
+            createdBy: invoice.order.createdBy,
+          } : null,
+          customer: invoice.customer,
+          latitude,
+          longitude,
+          status,
+          lastUpdate: invoice.updatedAt,
+        });
+      }
+    });
+
+    return Array.from(vehiclesMap.values());
   }
 }

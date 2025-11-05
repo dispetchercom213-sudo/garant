@@ -51,7 +51,7 @@ const menuItems: MenuItem[] = [
     text: 'Компании',
     icon: <Business />,
     path: '/companies',
-    roles: [UserRole.DEVELOPER, UserRole.ADMIN, UserRole.DIRECTOR],
+    roles: [UserRole.DEVELOPER, UserRole.ADMIN, UserRole.DIRECTOR, UserRole.DISPATCHER, UserRole.OPERATOR],
   },
   {
     text: 'Контрагенты',
@@ -82,6 +82,7 @@ const menuItems: MenuItem[] = [
     text: 'Транспорт',
     icon: <LocalShipping />,
     path: '/vehicles',
+    roles: [UserRole.DEVELOPER, UserRole.ADMIN, UserRole.DIRECTOR, UserRole.DISPATCHER, UserRole.OPERATOR, UserRole.DRIVER],
   },
   {
     text: 'Заказы',
@@ -99,6 +100,24 @@ const menuItems: MenuItem[] = [
     path: '/reports',
     roles: [UserRole.DEVELOPER, UserRole.ADMIN, UserRole.DIRECTOR, UserRole.ACCOUNTANT],
   },
+  {
+    text: 'Мои отчёты',
+    icon: <Assessment />,
+    path: '/my-reports',
+    roles: [UserRole.MANAGER],
+  },
+  {
+    text: 'Карта транспорта',
+    icon: <LocalShipping />,
+    path: '/my-map',
+    roles: [UserRole.MANAGER],
+  },
+  {
+    text: 'Карта транспорта',
+    icon: <LocalShipping />,
+    path: '/all-vehicles-map',
+    roles: [UserRole.ADMIN, UserRole.DEVELOPER, UserRole.DIRECTOR, UserRole.DISPATCHER, UserRole.OPERATOR],
+  },
 ];
 
 const roleLabels: Record<UserRole, string> = {
@@ -111,6 +130,7 @@ const roleLabels: Record<UserRole, string> = {
   [UserRole.SUPPLIER]: 'Поставщик',
   [UserRole.OPERATOR]: 'Оператор',
   [UserRole.DRIVER]: 'Водитель',
+  [UserRole.CLIENT]: 'Клиент',
 };
 
 interface LayoutProps {

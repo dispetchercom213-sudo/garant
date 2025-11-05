@@ -151,14 +151,6 @@ export const LoginPage: React.FC = () => {
               {isSubmitting ? 'Вход...' : 'Войти'}
             </Button>
           </form>
-
-          <Box mt={2}>
-            <Typography variant="body2" color="text.secondary" align="center">
-              Демо доступ:<br />
-              Логин: dev<br />
-              Пароль: dev123
-            </Typography>
-          </Box>
         </Paper>
       </Box>
     </Container>

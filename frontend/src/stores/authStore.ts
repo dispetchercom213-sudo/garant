@@ -20,6 +20,7 @@ interface User {
   currentRole?: string;
   email?: string;
   phone?: string;
+  availabilityStatus?: string;
 }
 
 interface AuthState {

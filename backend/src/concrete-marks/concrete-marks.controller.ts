@@ -22,7 +22,7 @@ export class ConcreteMarksController {
 
   @Get()
   @UseGuards(RolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.DEVELOPER, UserRole.DIRECTOR, UserRole.OPERATOR, UserRole.MANAGER, UserRole.DISPATCHER, UserRole.ACCOUNTANT, UserRole.DRIVER)
+  @Roles(UserRole.ADMIN, UserRole.DEVELOPER, UserRole.DIRECTOR, UserRole.OPERATOR, UserRole.MANAGER, UserRole.DISPATCHER, UserRole.ACCOUNTANT, UserRole.DRIVER, UserRole.CLIENT)
   findAll(
     @Query('page') page?: string,
     @Query('limit') limit?: string,
@@ -56,7 +56,7 @@ export class ConcreteMarksController {
 
   @Delete(':id')
   @UseGuards(RolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.DEVELOPER, UserRole.DISPATCHER)
+  @Roles(UserRole.ADMIN, UserRole.DEVELOPER, UserRole.DISPATCHER, UserRole.OPERATOR)
   remove(@Param('id') id: string) {
     return this.concreteMarksService.remove(+id);
   }

@@ -1,0 +1,32 @@
+version: '3.3'
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: garant-beton-db-local
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: garant_beton
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres123
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=ru_RU.UTF-8 --lc-ctype=ru_RU.UTF-8"
+    ports:
+      - "5433:5432"  # Локальный порт 5433, чтобы не конфликтовал с системным PostgreSQL
+    volumes:
+      - postgres_data_local:/var/lib/postgresql/data
+    networks:
+      - garant-beton-local-network
+    healthcheck:
+      test: pg_isready -U postgres
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data_local:
+    driver: local
+
+networks:
+  garant-beton-local-network:
+    driver: bridge
+

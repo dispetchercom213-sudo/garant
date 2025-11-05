@@ -70,6 +70,7 @@ export const UsersPageNew: React.FC = () => {
     [UserRole.SUPPLIER]: 'Поставщик',
     [UserRole.OPERATOR]: 'Оператор',
     [UserRole.DRIVER]: 'Водитель',
+    [UserRole.CLIENT]: 'Клиент',
   };
 
   // Лейблы для статусов
@@ -162,7 +163,18 @@ export const UsersPageNew: React.FC = () => {
       refetch();
     } catch (err: any) {
       console.error('❌ Ошибка при сохранении пользователя:', err);
-      error(err.response?.data?.message || 'Ошибка при сохранении');
+      console.error('📋 Детали ошибки:', {
+        response: err.response?.data,
+        status: err.response?.status,
+        message: err.message,
+      });
+      const errorMessage = err.response?.data?.message || 
+                          (Array.isArray(err.response?.data?.message) 
+                            ? err.response.data.message.join(', ') 
+                            : err.response?.data?.message) ||
+                          err.response?.data?.error ||
+                          'Ошибка при сохранении';
+      error(errorMessage);
     }
   };
 

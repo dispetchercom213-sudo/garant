@@ -54,21 +54,14 @@ export default function DriverWeighingWizard() {
 
       const fetchWeight = async () => {
         try {
-          const baseUrl = warehouse.scaleIpAddress.startsWith('http') 
-            ? warehouse.scaleIpAddress 
-            : `http://${warehouse.scaleIpAddress}:5055`;
-          
-          const resp = await fetch(`${baseUrl}/api/weight`, {
-            headers: {
-              'X-API-Key': warehouse.scaleApiKey || '',
-              'ngrok-skip-browser-warning': 'true',
-            },
-            signal: AbortSignal.timeout(3000)
-          });
-          
-          const data = await resp.json();
-          setLiveWeight(data.weight);
-          setScaleConnected(data.connected ?? true);
+          // Используем бэкенд как прокси для избежания CORS ошибок
+          const response = await scaleApi.getCurrentWeight(warehouse.id);
+          const data = response.data || response;
+          // ScaleBridge API может возвращать weight, unit, stable или weight, connected
+          const weight = data.weight ?? 0;
+          const connected = data.connected !== undefined ? !!data.connected : (data.stable !== undefined ? true : true);
+          setLiveWeight(weight);
+          setScaleConnected(connected);
         } catch (err) {
           console.error('Ошибка получения веса:', err);
           setScaleConnected(false);
@@ -93,14 +86,29 @@ export default function DriverWeighingWizard() {
       setDataLoading(true);
       
       // Водитель загружает свой транспорт и все справочники (только на просмотр)
-      const [vehiclesRes, suppliersRes, companiesRes, materialsRes, warehousesRes, driverRes] = await Promise.all([
+      // Загружаем информацию о водителе отдельно, чтобы не ломать остальные загрузки при ошибке
+      const [vehiclesRes, suppliersRes, companiesRes, materialsRes, warehousesRes] = await Promise.all([
         vehiclesApi.getMy(), // Только свой транспорт
         counterpartiesApi.getAll(),
         companiesApi.getAll(),
         materialsApi.getAll(),
         warehousesApi.getAll(),
-        driversApi.getMe(), // Информация о текущем водителе
       ]);
+      
+      // Загружаем информацию о водителе отдельно с обработкой ошибок
+      let driverRes = null;
+      try {
+        driverRes = await driversApi.getMe();
+      } catch (driverError: any) {
+        console.warn('⚠️ Не удалось загрузить информацию о водителе:', driverError);
+        if (driverError.response?.status === 404) {
+          notifications.show({
+            title: 'Предупреждение',
+            message: 'Профиль водителя не найден. Обратитесь к администратору для создания профиля.',
+            color: 'yellow',
+          });
+        }
+      }
 
       // Извлекаем массивы из ответов API - проверяем разные возможные структуры
       const vehiclesData = Array.isArray(vehiclesRes.data) 
@@ -176,8 +184,10 @@ export default function DriverWeighingWizard() {
       
       setWarehouses(filteredWarehouses);
       
-      // Сохраняем информацию о водителе
-      setDriverInfo(driverRes.data);
+      // Сохраняем информацию о водителе (может быть null если профиль не создан)
+      if (driverRes?.data) {
+        setDriverInfo(driverRes.data);
+      }
       
       setDataLoaded(true); // Помечаем что данные загружены
     } catch (error: any) {

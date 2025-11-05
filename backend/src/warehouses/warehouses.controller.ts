@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, UseGuards, Query } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, Param, Delete, UseGuards, Query, BadRequestException } from '@nestjs/common';
 import { WarehousesService } from './warehouses.service';
 import { CreateWarehouseDto } from './dto/create-warehouse.dto';
 import { UpdateWarehouseDto } from './dto/update-warehouse.dto';
@@ -14,14 +14,14 @@ export class WarehousesController {
 
   @Post()
   @UseGuards(RolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.DEVELOPER, UserRole.OPERATOR, UserRole.MANAGER)
+  @Roles(UserRole.ADMIN, UserRole.DEVELOPER, UserRole.OPERATOR, UserRole.MANAGER, UserRole.DISPATCHER, UserRole.DIRECTOR)
   create(@Body() createWarehouseDto: CreateWarehouseDto) {
     return this.warehousesService.create(createWarehouseDto);
   }
 
   @Get()
   @UseGuards(RolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.DEVELOPER, UserRole.DIRECTOR, UserRole.OPERATOR, UserRole.MANAGER, UserRole.DISPATCHER, UserRole.ACCOUNTANT, UserRole.DRIVER)
+  @Roles(UserRole.ADMIN, UserRole.DEVELOPER, UserRole.DIRECTOR, UserRole.OPERATOR, UserRole.MANAGER, UserRole.DISPATCHER, UserRole.ACCOUNTANT, UserRole.DRIVER, UserRole.CLIENT)
   findAll(
     @Query('page') page?: string,
     @Query('limit') limit?: string,
@@ -36,7 +36,7 @@ export class WarehousesController {
 
   @Get('stats')
   @UseGuards(RolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.DEVELOPER, UserRole.DIRECTOR, UserRole.OPERATOR, UserRole.MANAGER, UserRole.ACCOUNTANT)
+  @Roles(UserRole.ADMIN, UserRole.DEVELOPER, UserRole.DIRECTOR, UserRole.OPERATOR, UserRole.MANAGER, UserRole.ACCOUNTANT, UserRole.DISPATCHER)
   getStats() {
     return this.warehousesService.getStats();
   }
@@ -50,7 +50,7 @@ export class WarehousesController {
 
   @Patch(':id')
   @UseGuards(RolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.DEVELOPER, UserRole.DIRECTOR, UserRole.OPERATOR, UserRole.MANAGER)
+  @Roles(UserRole.ADMIN, UserRole.DEVELOPER, UserRole.DIRECTOR, UserRole.OPERATOR, UserRole.MANAGER, UserRole.DISPATCHER)
   update(@Param('id') id: string, @Body() updateWarehouseDto: UpdateWarehouseDto) {
     return this.warehousesService.update(+id, updateWarehouseDto);
   }
@@ -62,9 +62,32 @@ export class WarehousesController {
     return this.warehousesService.remove(+id);
   }
 
+  @Get('materials/balances')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.DEVELOPER, UserRole.DIRECTOR, UserRole.SUPPLIER, UserRole.DISPATCHER, UserRole.ACCOUNTANT)
+  getAllMaterialBalances(
+    @Query('warehouseId') warehouseId?: string,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
+  ) {
+    try {
+      const warehouseIdNum = warehouseId ? parseInt(warehouseId, 10) : undefined;
+      if (warehouseId && isNaN(warehouseIdNum!)) {
+        throw new BadRequestException('Invalid warehouse ID');
+      }
+      const start = startDate ? new Date(startDate) : undefined;
+      const end = endDate ? new Date(endDate) : undefined;
+      console.log('📊 Запрос остатков материалов:', { warehouseIdNum, startDate, endDate, start, end });
+      return this.warehousesService.getAllMaterialBalances(warehouseIdNum, start, end);
+    } catch (error) {
+      console.error('❌ Ошибка в контроллере getAllMaterialBalances:', error);
+      throw error;
+    }
+  }
+
   @Get(':id/balances')
   @UseGuards(RolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.DEVELOPER, UserRole.DIRECTOR, UserRole.OPERATOR, UserRole.MANAGER, UserRole.ACCOUNTANT)
+  @Roles(UserRole.ADMIN, UserRole.DEVELOPER, UserRole.DIRECTOR, UserRole.OPERATOR, UserRole.MANAGER, UserRole.ACCOUNTANT, UserRole.DISPATCHER)
   getMaterialBalances(@Param('id') id: string) {
     return this.warehousesService.getMaterialBalances(+id);
   }

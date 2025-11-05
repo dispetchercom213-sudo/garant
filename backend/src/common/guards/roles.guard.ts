@@ -20,17 +20,37 @@ export class RolesGuard implements CanActivate {
 
     const { user } = context.switchToHttp().getRequest();
     
-    // Используем currentRole для переключения ролей
-    const userRole = user.currentRole || user.role;
+    // Проверяем, что пользователь аутентифицирован
+    if (!user) {
+      console.error('❌ RolesGuard: пользователь не найден в запросе');
+      return false;
+    }
+    
+    // Используем основную role пользователя (функциональность смены роли удалена)
+    const userRole = user.role;
+    
+    if (!userRole) {
+      console.error('❌ RolesGuard: роль пользователя не найдена', { user });
+      return false;
+    }
     
     const hasAccess = requiredRoles.some((role) => userRole === role);
     
     console.log('🔐 RolesGuard проверка:', {
       requiredRoles,
       userRole,
-      user: { username: user.username, role: user.role, currentRole: user.currentRole },
-      hasAccess
+      user: { 
+        username: user.username, 
+        userId: user.userId || user.id,
+        role: user.role
+      },
+      hasAccess,
+      endpoint: context.switchToHttp().getRequest().url
     });
+    
+    if (!hasAccess) {
+      console.warn(`⚠️ RolesGuard: доступ запрещен. Требуется: ${requiredRoles.join(', ')}, есть: ${userRole}`);
+    }
     
     return hasAccess;
   }

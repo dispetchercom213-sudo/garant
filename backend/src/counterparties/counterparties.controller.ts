@@ -14,7 +14,7 @@ export class CounterpartiesController {
 
   @Post()
   @UseGuards(RolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.DEVELOPER, UserRole.DIRECTOR, UserRole.DISPATCHER, UserRole.ACCOUNTANT, UserRole.MANAGER, UserRole.OPERATOR, UserRole.DRIVER)
+  @Roles(UserRole.ADMIN, UserRole.DEVELOPER, UserRole.DIRECTOR, UserRole.DISPATCHER, UserRole.ACCOUNTANT, UserRole.MANAGER, UserRole.OPERATOR, UserRole.DRIVER, UserRole.CLIENT)
   create(@Body() createCounterpartyDto: CreateCounterpartyDto, @Request() req) {
     // userId приходит из JWT стратегии
     const userId = req.user.userId || req.user.id;
@@ -23,7 +23,7 @@ export class CounterpartiesController {
 
   @Get()
   @UseGuards(RolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.DEVELOPER, UserRole.MANAGER, UserRole.DIRECTOR, UserRole.ACCOUNTANT, UserRole.DISPATCHER, UserRole.OPERATOR, UserRole.DRIVER)
+  @Roles(UserRole.ADMIN, UserRole.DEVELOPER, UserRole.MANAGER, UserRole.DIRECTOR, UserRole.ACCOUNTANT, UserRole.DISPATCHER, UserRole.OPERATOR, UserRole.DRIVER, UserRole.CLIENT)
   findAll(
     @Query('page') page?: string,
     @Query('limit') limit?: string,
@@ -38,14 +38,14 @@ export class CounterpartiesController {
 
   @Get('stats')
   @UseGuards(RolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.DEVELOPER, UserRole.MANAGER, UserRole.DIRECTOR, UserRole.ACCOUNTANT)
+  @Roles(UserRole.ADMIN, UserRole.DEVELOPER, UserRole.MANAGER, UserRole.DIRECTOR, UserRole.ACCOUNTANT, UserRole.DISPATCHER, UserRole.OPERATOR)
   getStats() {
     return this.counterpartiesService.getStats();
   }
 
   @Get(':id')
   @UseGuards(RolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.DEVELOPER, UserRole.MANAGER, UserRole.DIRECTOR, UserRole.ACCOUNTANT, UserRole.DISPATCHER)
+  @Roles(UserRole.ADMIN, UserRole.DEVELOPER, UserRole.MANAGER, UserRole.DIRECTOR, UserRole.ACCOUNTANT, UserRole.DISPATCHER, UserRole.OPERATOR)
   findOne(@Param('id') id: string) {
     return this.counterpartiesService.findOne(+id);
   }

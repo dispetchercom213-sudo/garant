@@ -117,6 +117,10 @@ export class DriversService {
   }
 
   async getDriverByUserId(userId: number) {
+    if (!userId) {
+      throw new NotFoundException('ID пользователя не указан');
+    }
+
     const driver = await this.prisma.driver.findUnique({
       where: { userId },
       select: {
@@ -128,6 +132,7 @@ export class DriversService {
         email: true,
         licenseNumber: true,
         licenseExpiryDate: true,
+        userId: true,
         user: {
           select: {
             id: true,
@@ -141,7 +146,7 @@ export class DriversService {
     });
 
     if (!driver) {
-      throw new NotFoundException('Профиль водителя не найден');
+      throw new NotFoundException(`Профиль водителя не найден для пользователя с ID: ${userId}. Обратитесь к администратору для создания профиля водителя.`);
     }
 
     return driver;

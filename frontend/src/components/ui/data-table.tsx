@@ -220,70 +220,83 @@ export function DataTable<T extends Record<string, any>>({
             {searchQuery ? 'Ничего не найдено' : 'Нет данных'}
           </div>
         ) : (
-          paginatedData.map((row, index) => (
-            <div key={index} className="bg-white border border-gray-200 rounded-lg p-3 shadow-sm">
-              {/* Основная информация */}
-              <div className="space-y-2 mb-3">
-                {columns.slice(0, 4).map((column) => (
-                  <div key={String(column.id)} className="flex justify-between items-start">
-                    <span className="text-xs font-medium text-gray-600 w-1/3">{column.label}:</span>
-                    <span className="text-sm text-gray-900 w-2/3 text-right">
-                      {column.render 
-                        ? column.render(row[column.id], row)
-                        : String(row[column.id] || '-')
-                      }
-                    </span>
-                  </div>
-                ))}
-              </div>
-              
-              {/* Действия */}
-              {showActions && (onEdit || onDelete || onPrint || onCopy) && (
-                <div className="flex flex-wrap gap-2 pt-3 border-t border-gray-200">
-                  {onEdit && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="flex-1 min-w-[70px] text-xs py-1.5"
-                      onClick={() => onEdit(row)}
-                    >
-                      <Edit className="h-3.5 w-3.5" />
-                    </Button>
-                  )}
-                  {onCopy && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="flex-1 min-w-[70px] text-xs text-gray-700 border-gray-300 py-1.5"
-                      onClick={() => onCopy(row)}
-                    >
-                      <Copy className="h-3.5 w-3.5" />
-                    </Button>
-                  )}
-                  {onPrint && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="flex-1 min-w-[70px] text-xs text-gray-700 border-gray-300 py-1.5"
-                      onClick={() => onPrint(row)}
-                    >
-                      <Printer className="h-3.5 w-3.5" />
-                    </Button>
-                  )}
-                  {onDelete && (!canDelete || canDelete(row)) && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="flex-1 min-w-[70px] text-xs text-red-600 border-red-300 py-1.5"
-                      onClick={() => onDelete(row)}
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </Button>
-                  )}
+          paginatedData.map((row, index) => {
+            // Находим колонку с действиями (actions)
+            const actionsColumn = columns.find(col => col.id === 'actions' || col.label === 'Действия');
+            const actionButtons = actionsColumn?.render ? actionsColumn.render(null, row) : null;
+            
+            return (
+              <div key={index} className="bg-white border border-gray-200 rounded-lg p-3 shadow-sm">
+                {/* Основная информация */}
+                <div className="space-y-2 mb-3">
+                  {columns.filter(col => col.id !== 'actions' && col.label !== 'Действия').slice(0, 4).map((column) => (
+                    <div key={String(column.id)} className="flex justify-between items-start">
+                      <span className="text-xs font-medium text-gray-600 w-1/3">{column.label}:</span>
+                      <span className="text-sm text-gray-900 w-2/3 text-right">
+                        {column.render 
+                          ? column.render(row[column.id], row)
+                          : String(row[column.id] || '-')
+                        }
+                      </span>
+                    </div>
+                  ))}
                 </div>
-              )}
-            </div>
-          ))
+                
+                {/* Действия из колонки actions */}
+                {actionButtons && (
+                  <div className="flex flex-wrap gap-2 pt-3 border-t border-gray-200">
+                    {actionButtons}
+                  </div>
+                )}
+                
+                {/* Стандартные действия */}
+                {showActions && (onEdit || onDelete || onPrint || onCopy) && !actionButtons && (
+                  <div className="flex flex-wrap gap-2 pt-3 border-t border-gray-200">
+                    {onEdit && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="flex-1 min-w-[70px] text-xs py-1.5"
+                        onClick={() => onEdit(row)}
+                      >
+                        <Edit className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
+                    {onCopy && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="flex-1 min-w-[70px] text-xs text-gray-700 border-gray-300 py-1.5"
+                        onClick={() => onCopy(row)}
+                      >
+                        <Copy className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
+                    {onPrint && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="flex-1 min-w-[70px] text-xs text-gray-700 border-gray-300 py-1.5"
+                        onClick={() => onPrint(row)}
+                      >
+                        <Printer className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
+                    {onDelete && (!canDelete || canDelete(row)) && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="flex-1 min-w-[70px] text-xs text-red-600 border-red-300 py-1.5"
+                        onClick={() => onDelete(row)}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })
         )}
       </div>
 

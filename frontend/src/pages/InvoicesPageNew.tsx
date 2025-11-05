@@ -8,8 +8,8 @@ import { Label } from '../components/ui/label';
 import { Checkbox } from '../components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { SelectWithQuickAdd } from '../components/SelectWithQuickAdd';
-import { invoicesApi, ordersApi, counterpartiesApi, concreteMarksApi, driversApi, vehiclesApi, warehousesApi, companiesApi, materialsApi, api } from '../services/api';
-import type { Invoice, Order, Counterparty, ConcreteMark, Driver, Vehicle, Warehouse, Company, Material } from '../types';
+import { invoicesApi, ordersApi, counterpartiesApi, concreteMarksApi, driversApi, vehiclesApi, warehousesApi, companiesApi, materialsApi, scaleApi, api } from '../services/api';
+import type { Invoice, Order, Counterparty, ConcreteMark, Driver, Vehicle, Warehouse, Company, Material, User } from '../types';
 import { InvoiceType } from '../types';
 import { useNotifications } from '../hooks/useNotifications';
 import { useApiData } from '../hooks/useApiData';
@@ -230,28 +230,20 @@ export const InvoicesPageNew: React.FC<InvoicesPageNewProps> = ({ type: filterTy
     let timer: any;
     const fetchWeight = async () => {
       try {
-        // Определяем URL: если IP содержит протокол (http/https), используем как есть, иначе строим
-        const baseUrl = selected.scaleIpAddress.startsWith('http') 
-          ? selected.scaleIpAddress 
-          : `http://${selected.scaleIpAddress}:5055`;
+        // Используем бэкенд как прокси для избежания CORS ошибок
+        console.log(`⚖️ Запрос текущего веса через бэкенд для склада ${selected.id}`);
         
-        console.log(`⚖️ Запрос текущего веса: ${baseUrl}/api/weight`);
-        
-        const resp = await fetch(`${baseUrl}/api/weight`, {
-          headers: { 
-            'X-API-Key': selected.scaleApiKey,
-            'ngrok-skip-browser-warning': 'true' // Обход страницы предупреждения Ngrok
-          },
-          signal: AbortSignal.timeout(3000) // Увеличили таймаут до 3 сек для удаленного подключения
+        const response = await scaleApi.getCurrentWeight(selected.id);
+        const data = response.data || response;
+        // ScaleBridge API может возвращать weight, unit, stable или weight, connected
+        // Обрабатываем оба формата
+        const weight = data.weight ?? 0;
+        const connected = data.connected !== undefined ? !!data.connected : (data.stable !== undefined ? true : true);
+        console.log(`✅ Получен вес: ${weight} кг, подключено: ${connected}`);
+        setLiveWeight({ 
+          weight, 
+          connected 
         });
-        
-        if (!resp.ok) {
-          throw new Error('Весы не отвечают');
-        }
-        
-        const data = await resp.json();
-        console.log(`✅ Получен вес: ${data.weight} кг, подключено: ${data.connected}`);
-        setLiveWeight({ weight: data.weight ?? 0, connected: !!data.connected });
       } catch (e: any) {
         // Тихо обрабатываем ошибку подключения без спама в консоль
         console.log(`❌ Ошибка получения веса: ${e.message}`);
@@ -1264,10 +1256,60 @@ export const InvoicesPageNew: React.FC<InvoicesPageNewProps> = ({ type: filterTy
                 (() => {
                   const selectedOrder = orders.find(o => o.id.toString() === formData.orderId);
                   if (selectedOrder) {
+                    // Считаем сумму уже созданных расходных накладных по этому заказу
+                    // Используем накладные из заказа, если они есть, или из общего списка
+                    const orderInvoices = selectedOrder.invoices || 
+                      (invoices ? invoices.filter(inv => 
+                        inv.orderId?.toString() === formData.orderId && 
+                        inv.type === InvoiceType.EXPENSE &&
+                        (!editingInvoice || inv.id !== editingInvoice.id) // Исключаем редактируемую накладную
+                      ) : []);
+                    
+                    const totalInvoiced = orderInvoices.reduce((sum, inv) => {
+                      const quantity = typeof inv.quantityM3 === 'number' ? inv.quantityM3 : parseFloat(String(inv.quantityM3 || 0));
+                      return sum + quantity;
+                    }, 0);
+                    
+                    // Учитываем текущее введенное количество в форме (если есть)
+                    const currentFormQuantity = formData.quantityM3 ? parseFloat(String(formData.quantityM3)) : 0;
+                    const editingInvoiceQuantity = editingInvoice && editingInvoice.orderId?.toString() === formData.orderId
+                      ? (typeof editingInvoice.quantityM3 === 'number' ? editingInvoice.quantityM3 : parseFloat(String(editingInvoice.quantityM3 || 0)))
+                      : 0;
+                    
+                    // При редактировании вычитаем старое значение и добавляем новое из формы
+                    // При создании просто добавляем значение из формы
+                    const totalInvoicedWithCurrent = totalInvoiced - editingInvoiceQuantity + (isNaN(currentFormQuantity) ? 0 : currentFormQuantity);
+                    
+                    const initialQuantity = typeof selectedOrder.quantityM3 === 'number' 
+                      ? selectedOrder.quantityM3 
+                      : parseFloat(String(selectedOrder.quantityM3 || 0));
+                    const remaining = initialQuantity - totalInvoicedWithCurrent;
+                    
                     return (
                       <div className="bg-gray-100 text-gray-900 px-2 sm:px-4 py-2 rounded-lg border-2 border-gray-400">
-                        <div className="text-xs font-medium">Всего в заказе:</div>
-                        <div className="text-sm sm:text-lg font-bold">{selectedOrder.quantityM3} м³</div>
+                        <div className="text-xs font-medium mb-1">Всего в заказе: {initialQuantity.toFixed(1)} м³</div>
+                        {totalInvoiced > 0 && (
+                          <div className="text-xs text-gray-600 mb-1">
+                            Доставлено: {totalInvoiced.toFixed(1)} м³
+                            {currentFormQuantity > 0 && !editingInvoice && (
+                              <span className="text-blue-600 ml-1">(+{currentFormQuantity.toFixed(1)})</span>
+                            )}
+                            {editingInvoice && editingInvoiceQuantity !== currentFormQuantity && (
+                              <span className="text-blue-600 ml-1">
+                                ({editingInvoiceQuantity > currentFormQuantity ? '-' : '+'}
+                                {Math.abs(editingInvoiceQuantity - currentFormQuantity).toFixed(1)})
+                              </span>
+                            )}
+                          </div>
+                        )}
+                        <div className={`text-sm sm:text-lg font-bold ${remaining < 0 ? 'text-red-700' : 'text-blue-700'}`}>
+                          Осталось: {remaining.toFixed(1)} м³
+                        </div>
+                        {remaining < 0 && (
+                          <div className="text-xs text-red-600 mt-1 font-medium">
+                            ⚠️ Превышен объем заказа!
+                          </div>
+                        )}
                       </div>
                     );
                   }
@@ -1343,17 +1385,18 @@ export const InvoicesPageNew: React.FC<InvoicesPageNewProps> = ({ type: filterTy
                           quickAddFields={[
                             { name: 'name', label: 'Название', required: true },
                             { name: 'bin', label: 'БИН', required: true },
+                            { name: 'phone', label: 'Телефон', type: 'tel', required: true },
                             { name: 'address', label: 'Адрес', required: false },
-                            { name: 'phone', label: 'Телефон', type: 'tel', required: false },
                             { name: 'email', label: 'Email', type: 'email', required: false },
                           ]}
                           onQuickAdd={async (data) => {
                             await counterpartiesApi.create({
                               name: data.name,
+                              kind: 'LEGAL',
                               type: 'CUSTOMER',
-                              bin: data.bin,
+                              binOrIin: data.bin || undefined,
+                              phone: data.phone,
                               address: data.address || undefined,
-                              phone: data.phone || undefined,
                               email: data.email || undefined,
                             });
                             await refetchCounterparties();
@@ -1580,17 +1623,18 @@ export const InvoicesPageNew: React.FC<InvoicesPageNewProps> = ({ type: filterTy
                           quickAddFields={[
                             { name: 'name', label: 'Название', required: true },
                             { name: 'bin', label: 'БИН', required: true },
+                            { name: 'phone', label: 'Телефон', type: 'tel', required: true },
                             { name: 'address', label: 'Адрес', required: false },
-                            { name: 'phone', label: 'Телефон', type: 'tel', required: false },
                             { name: 'email', label: 'Email', type: 'email', required: false },
                           ]}
                           onQuickAdd={async (data) => {
                             await counterpartiesApi.create({
                               name: data.name,
+                              kind: 'LEGAL',
                               type: 'SUPPLIER',
-                              bin: data.bin,
+                              binOrIin: data.bin || undefined,
+                              phone: data.phone,
                               address: data.address || undefined,
-                              phone: data.phone || undefined,
                               email: data.email || undefined,
                             });
                             await refetchCounterparties();
@@ -2181,6 +2225,34 @@ const InvoicePrintComponent: React.FC<{ invoice: Invoice }> = ({ invoice }) => {
     return type === InvoiceType.EXPENSE ? 'Расходная накладная' : 'Приходная накладная';
   };
 
+  // Функция для форматирования ФИО в формат "Фамилия И.О."
+  const formatFio = (user: User | undefined): string => {
+    if (!user) return '_________________';
+    
+    const lastName = user.lastName || '';
+    const firstName = user.firstName || '';
+    
+    if (!lastName && !firstName) {
+      // Если нет имени и фамилии, используем логин
+      return user.username || user.login || '_________________';
+    }
+    
+    // Формируем инициалы
+    const firstInitial = firstName ? firstName.charAt(0).toUpperCase() + '.' : '';
+    const middleInitial = ''; // У нас нет отчества в структуре User
+    
+    // Формируем строку "Фамилия И."
+    if (lastName && firstName) {
+      return `${lastName} ${firstInitial}`.trim();
+    } else if (lastName) {
+      return lastName;
+    } else if (firstName) {
+      return firstName;
+    }
+    
+    return '_________________';
+  };
+
   const formatDate = (date: string) => {
     return new Date(date).toLocaleDateString('ru-RU', {
       year: 'numeric',
@@ -2535,7 +2607,11 @@ const InvoicePrintComponent: React.FC<{ invoice: Invoice }> = ({ invoice }) => {
       {/* Подписи */}
       <div className="grid grid-cols-2 gap-8 print:gap-6">
         <div>
-          <p className="text-sm print:text-xs mb-8 print:mb-6">Отпустил: _________________</p>
+          <p className="text-sm print:text-xs mb-8 print:mb-6">
+            Отпустил: {invoice.type === InvoiceType.EXPENSE 
+              ? (invoice.releasedByFio || formatFio(invoice.createdBy))
+              : '_________________'}
+          </p>
           <p className="text-sm print:text-xs">(подпись)</p>
         </div>
         <div>

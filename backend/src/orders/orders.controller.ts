@@ -15,15 +15,20 @@ export class OrdersController {
 
   @Post()
   @UseGuards(RolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.DEVELOPER, UserRole.DIRECTOR, UserRole.MANAGER, UserRole.OPERATOR, UserRole.DISPATCHER, UserRole.DRIVER)
-  create(@Body() createOrderDto: CreateOrderDto) {
-    return this.ordersService.create(createOrderDto);
+  @Roles(UserRole.ADMIN, UserRole.DEVELOPER, UserRole.DIRECTOR, UserRole.MANAGER, UserRole.OPERATOR, UserRole.DISPATCHER, UserRole.DRIVER, UserRole.CLIENT)
+  create(@Body() createOrderDto: CreateOrderDto, @Request() req) {
+    // Автоматически устанавливаем createdById из токена пользователя
+    const userId = req.user.userId || req.user.id;
+    return this.ordersService.create({
+      ...createOrderDto,
+      createdById: userId,
+    });
   }
 
-  // Эндпоинт для получения заказов текущего водителя
+  // Эндпоинт для получения заказов текущего пользователя (менеджер видит свои созданные заказы, водитель - назначенные)
   @Get('my')
   @UseGuards(RolesGuard)
-  @Roles(UserRole.DRIVER, UserRole.DEVELOPER)
+  @Roles(UserRole.DRIVER, UserRole.DEVELOPER, UserRole.MANAGER, UserRole.OPERATOR, UserRole.CLIENT)
   async getMyOrders(
     @Request() req,
     @Query('page') page?: string,
@@ -40,13 +45,24 @@ export class OrdersController {
     }
     
     // Для водителя получаем ID водителя и показываем только его заказы
-    const driverId = await this.ordersService.getDriverIdByUserId(req.user.userId);
-    return this.ordersService.getOrdersByDriver(driverId, pageNum, limitNum, search, status);
+    if (req.user.role === UserRole.DRIVER) {
+      const driverId = await this.ordersService.getDriverIdByUserId(req.user.userId);
+      return this.ordersService.getOrdersByDriver(driverId, pageNum, limitNum, search, status);
+    }
+    
+    // Для менеджера, оператора и клиента показываем только созданные ими заказы
+    const userId = req.user.userId || req.user.id;
+    return this.ordersService.findAll(pageNum, limitNum, search, status, { 
+      userId, 
+      id: userId,
+      role: req.user.role,
+      filterByUserId: true // Явно указываем, что нужно фильтровать по userId
+    });
   }
 
   @Get()
   @UseGuards(RolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.DEVELOPER, UserRole.DIRECTOR, UserRole.MANAGER, UserRole.OPERATOR, UserRole.DISPATCHER, UserRole.ACCOUNTANT, UserRole.DRIVER)
+  @Roles(UserRole.ADMIN, UserRole.DEVELOPER, UserRole.DIRECTOR, UserRole.MANAGER, UserRole.OPERATOR, UserRole.DISPATCHER, UserRole.ACCOUNTANT, UserRole.DRIVER, UserRole.CLIENT)
   findAll(
     @Query('page') page?: string,
     @Query('limit') limit?: string,
@@ -56,7 +72,18 @@ export class OrdersController {
   ) {
     const pageNum = page ? parseInt(page, 10) : 1;
     const limitNum = limit ? parseInt(limit, 10) : 10;
-    return this.ordersService.findAll(pageNum, limitNum, search, status, req.user);
+    const user = req?.user;
+    // Для CLIENT фильтруем только по его заказам
+    if (user && user.role === UserRole.CLIENT) {
+      const userId = user.userId || user.id;
+      return this.ordersService.findAll(pageNum, limitNum, search, status, { 
+        userId, 
+        id: userId,
+        role: user.role,
+        filterByUserId: true
+      });
+    }
+    return this.ordersService.findAll(pageNum, limitNum, search, status, user);
   }
 
   @Get('stats')
@@ -102,17 +129,19 @@ export class OrdersController {
 
   @Patch(':id/status')
   @UseGuards(RolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.DEVELOPER, UserRole.DIRECTOR, UserRole.MANAGER, UserRole.DISPATCHER)
-  updateStatus(@Param('id') id: string, @Body() body: { status: OrderStatus }) {
-    return this.ordersService.updateStatus(+id, body.status);
+  @Roles(UserRole.ADMIN, UserRole.DEVELOPER, UserRole.DIRECTOR, UserRole.MANAGER, UserRole.DISPATCHER, UserRole.OPERATOR)
+  updateStatus(@Param('id') id: string, @Body() body: { status: OrderStatus }, @Request() req) {
+    const userId = req.user.userId || req.user.id;
+    return this.ordersService.updateStatus(+id, body.status, userId);
   }
 
-  @Delete(':id')
-  @UseGuards(RolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.DEVELOPER, UserRole.DIRECTOR, UserRole.DISPATCHER, UserRole.MANAGER, UserRole.OPERATOR, UserRole.DRIVER)
-  remove(@Param('id') id: string, @Request() req) {
-    return this.ordersService.remove(+id, req.user.userId, req.user.role);
-  }
+  // Удаление заказов полностью запрещено - все заказы сохраняются в истории
+  // @Delete(':id')
+  // @UseGuards(RolesGuard)
+  // @Roles(UserRole.ADMIN, UserRole.DEVELOPER, UserRole.DIRECTOR, UserRole.DISPATCHER, UserRole.MANAGER, UserRole.OPERATOR, UserRole.DRIVER)
+  // remove(@Param('id') id: string, @Request() req) {
+  //   return this.ordersService.remove(+id, req.user.userId, req.user.role);
+  // }
 
   @Get(':id/materials')
   @UseGuards(RolesGuard)
@@ -145,27 +174,43 @@ export class OrdersController {
     return this.ordersService.rejectProposedChanges(+id, req.user.userId);
   }
 
+  // Удаление заказов полностью запрещено - все заказы сохраняются в истории
   // Запросить удаление заказа (для принятых заказов)
-  @Patch(':id/request-deletion')
-  @UseGuards(RolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.DEVELOPER, UserRole.DIRECTOR, UserRole.MANAGER, UserRole.OPERATOR, UserRole.DISPATCHER)
-  requestDeletion(@Param('id') id: string, @Body() body: { reason: string }, @Request() req) {
-    return this.ordersService.requestDeletion(+id, req.user.userId, req.user.role, body.reason);
-  }
+  // @Patch(':id/request-deletion')
+  // @UseGuards(RolesGuard)
+  // @Roles(UserRole.ADMIN, UserRole.DEVELOPER, UserRole.DIRECTOR, UserRole.MANAGER, UserRole.OPERATOR, UserRole.DISPATCHER)
+  // requestDeletion(@Param('id') id: string, @Body() body: { reason: string }, @Request() req) {
+  //   return this.ordersService.requestDeletion(+id, req.user.userId, req.user.role, body.reason);
+  // }
 
   // Подтвердить удаление (директор/диспетчер/создатель)
-  @Patch(':id/approve-deletion')
-  @UseGuards(RolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.DEVELOPER, UserRole.DIRECTOR, UserRole.DISPATCHER, UserRole.MANAGER, UserRole.OPERATOR)
-  approveDeletion(@Param('id') id: string, @Request() req) {
-    return this.ordersService.approveDeletion(+id, req.user.userId, req.user.role);
-  }
+  // @Patch(':id/approve-deletion')
+  // @UseGuards(RolesGuard)
+  // @Roles(UserRole.ADMIN, UserRole.DEVELOPER, UserRole.DIRECTOR, UserRole.DISPATCHER, UserRole.MANAGER, UserRole.OPERATOR)
+  // approveDeletion(@Param('id') id: string, @Request() req) {
+  //   return this.ordersService.approveDeletion(+id, req.user.userId, req.user.role);
+  // }
 
   // Отклонить запрос на удаление (директор/диспетчер/создатель)
-  @Patch(':id/reject-deletion')
+  // @Patch(':id/reject-deletion')
+  // @UseGuards(RolesGuard)
+  // @Roles(UserRole.ADMIN, UserRole.DEVELOPER, UserRole.DIRECTOR, UserRole.DISPATCHER, UserRole.MANAGER, UserRole.OPERATOR)
+  // rejectDeletion(@Param('id') id: string, @Request() req) {
+  //   return this.ordersService.rejectDeletion(+id, req.user.userId, req.user.role);
+  // }
+
+  // Получить историю удаленных заказов
+  @Get('history/deleted')
   @UseGuards(RolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.DEVELOPER, UserRole.DIRECTOR, UserRole.DISPATCHER, UserRole.MANAGER, UserRole.OPERATOR)
-  rejectDeletion(@Param('id') id: string, @Request() req) {
-    return this.ordersService.rejectDeletion(+id, req.user.userId, req.user.role);
+  @Roles(UserRole.ADMIN, UserRole.DEVELOPER, UserRole.DIRECTOR, UserRole.MANAGER, UserRole.OPERATOR, UserRole.DISPATCHER, UserRole.ACCOUNTANT)
+  getDeletedOrdersHistory(
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+    @Query('search') search?: string,
+    @Request() req?,
+  ) {
+    const pageNum = page ? parseInt(page, 10) : 1;
+    const limitNum = limit ? parseInt(limit, 10) : 10;
+    return this.ordersService.getDeletedOrdersHistory(pageNum, limitNum, search, req.user);
   }
 }

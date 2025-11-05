@@ -15,14 +15,14 @@ export class DriversController {
 
   @Post()
   @UseGuards(RolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.DEVELOPER, UserRole.DIRECTOR, UserRole.DISPATCHER)
+  @Roles(UserRole.ADMIN, UserRole.DEVELOPER, UserRole.DIRECTOR, UserRole.DISPATCHER, UserRole.OPERATOR)
   create(@Body() createDriverDto: CreateDriverDto, @CurrentUser() user: any) {
     return this.driversService.create(createDriverDto, user.id);
   }
 
   @Get()
   @UseGuards(RolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.DEVELOPER, UserRole.DIRECTOR, UserRole.DISPATCHER, UserRole.DRIVER, UserRole.MANAGER)
+  @Roles(UserRole.ADMIN, UserRole.DEVELOPER, UserRole.DIRECTOR, UserRole.DISPATCHER, UserRole.DRIVER, UserRole.MANAGER, UserRole.CLIENT)
   findAll(
     @Query('page') page?: string,
     @Query('limit') limit?: string,
@@ -35,35 +35,37 @@ export class DriversController {
 
   @Get('stats')
   @UseGuards(RolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.DEVELOPER, UserRole.DIRECTOR, UserRole.DISPATCHER, UserRole.MANAGER)
+  @Roles(UserRole.ADMIN, UserRole.DEVELOPER, UserRole.DIRECTOR, UserRole.DISPATCHER, UserRole.OPERATOR, UserRole.MANAGER)
   getStats() {
     return this.driversService.getStats();
   }
 
   @Get('available')
   @UseGuards(RolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.DEVELOPER, UserRole.DIRECTOR, UserRole.DISPATCHER, UserRole.MANAGER)
+  @Roles(UserRole.ADMIN, UserRole.DEVELOPER, UserRole.DIRECTOR, UserRole.DISPATCHER, UserRole.OPERATOR, UserRole.MANAGER)
   getAvailableDrivers() {
     return this.driversService.getAvailableDrivers();
   }
 
+  // ВАЖНО: Этот маршрут должен быть ПЕРЕД @Get(':id'), иначе "me" будет интерпретироваться как ID
   @Get('me')
   @UseGuards(RolesGuard)
   @Roles(UserRole.DRIVER, UserRole.DEVELOPER)
   async getMyDriverInfo(@Request() req: any) {
-    return this.driversService.getDriverByUserId(req.user.userId);
+    const userId = req.user.userId || req.user.id;
+    return this.driversService.getDriverByUserId(userId);
   }
 
   @Get(':id')
   @UseGuards(RolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.DEVELOPER, UserRole.DIRECTOR, UserRole.DISPATCHER, UserRole.DRIVER, UserRole.MANAGER)
+  @Roles(UserRole.ADMIN, UserRole.DEVELOPER, UserRole.DIRECTOR, UserRole.DISPATCHER, UserRole.OPERATOR, UserRole.DRIVER, UserRole.MANAGER)
   findOne(@Param('id') id: string) {
     return this.driversService.findOne(+id);
   }
 
   @Patch(':id')
   @UseGuards(RolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.DEVELOPER, UserRole.DIRECTOR, UserRole.DISPATCHER)
+  @Roles(UserRole.ADMIN, UserRole.DEVELOPER, UserRole.DIRECTOR, UserRole.DISPATCHER, UserRole.OPERATOR)
   update(@Param('id') id: string, @Body() updateDriverDto: UpdateDriverDto) {
     return this.driversService.update(+id, updateDriverDto);
   }
@@ -77,7 +79,7 @@ export class DriversController {
 
   @Get(':id/performance')
   @UseGuards(RolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.DEVELOPER, UserRole.DIRECTOR, UserRole.DISPATCHER, UserRole.MANAGER)
+  @Roles(UserRole.ADMIN, UserRole.DEVELOPER, UserRole.DIRECTOR, UserRole.DISPATCHER, UserRole.OPERATOR, UserRole.MANAGER)
   getDriverPerformance(
     @Param('id') id: string,
     @Query('startDate') startDate?: string,

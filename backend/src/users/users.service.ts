@@ -15,7 +15,7 @@ export class UsersService {
       data: {
         ...createUserDto,
         password: hashedPassword,
-        currentRole: createUserDto.role,
+        currentRole: null, // Функциональность смены роли удалена
         username: createUserDto.login, // дублируем login в username
         createdById,
       },
@@ -30,6 +30,7 @@ export class UsersService {
         role: true,
         currentRole: true,
         status: true,
+        availabilityStatus: true,
         createdAt: true,
         updatedAt: true,
         createdBy: {
@@ -57,6 +58,7 @@ export class UsersService {
         role: true,
         currentRole: true,
         status: true,
+        availabilityStatus: true,
         createdAt: true,
         updatedAt: true,
       },
@@ -72,12 +74,15 @@ export class UsersService {
       select: {
         id: true,
         username: true,
+        login: true,
         email: true,
         firstName: true,
         lastName: true,
+        phone: true,
         role: true,
         currentRole: true,
         status: true,
+        availabilityStatus: true,
         createdAt: true,
         updatedAt: true,
       },
@@ -132,6 +137,7 @@ export class UsersService {
         role: true,
         currentRole: true,
         status: true,
+        availabilityStatus: true,
         createdAt: true,
         updatedAt: true,
       },
@@ -176,6 +182,22 @@ export class UsersService {
   async findByUsername(username: string) {
     return this.prisma.user.findUnique({
       where: { username },
+      select: {
+        id: true,
+        username: true,
+        login: true,
+        password: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        phone: true,
+        role: true,
+        currentRole: true,
+        status: true,
+        availabilityStatus: true,
+        createdAt: true,
+        updatedAt: true,
+      },
     });
   }
 

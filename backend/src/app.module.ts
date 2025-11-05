@@ -19,6 +19,7 @@ import { TasksModule } from './tasks/tasks.module';
 import { InternalRequestsModule } from './internal-requests/internal-requests.module';
 import { AdditionalServicesModule } from './additional-services/additional-services.module';
 import { DriverWeighingHistoryModule } from './driver-weighing-history/driver-weighing-history.module';
+import { NotificationsModule } from './notifications/notifications.module';
 import { AppController } from './app.controller';
 
 @Module({
@@ -46,6 +47,7 @@ import { AppController } from './app.controller';
     InternalRequestsModule,
     AdditionalServicesModule,
     DriverWeighingHistoryModule,
+    NotificationsModule,
   ],
   controllers: [AppController],
 })

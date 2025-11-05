@@ -26,11 +26,17 @@ export class AuthService {
       throw new UnauthorizedException('Неверные учетные данные');
     }
 
+    // Очищаем currentRole при логине (функциональность смены роли удалена)
+    // Используем только основную role пользователя
+    if (user.currentRole && user.currentRole !== user.role) {
+      await this.usersService.update(user.id, { currentRole: null });
+      user.currentRole = null;
+    }
+
     const payload = { 
       username: user.username, 
       sub: user.id, 
-      role: user.role,
-      currentRole: user.currentRole 
+      role: user.role
     };
 
     return {
@@ -43,7 +49,7 @@ export class AuthService {
         email: user.email,
         phone: user.phone,
         role: user.role,
-        currentRole: user.currentRole,
+        availabilityStatus: user.availabilityStatus,
       },
     };
   }

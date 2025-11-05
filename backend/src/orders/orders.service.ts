@@ -1,12 +1,17 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Inject, forwardRef } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderDto } from './dto/update-order.dto';
-import { OrderStatus } from '@prisma/client';
+import { OrderStatus, UserRole, NotificationType } from '@prisma/client';
+import { NotificationsService } from '../notifications/notifications.service';
 
 @Injectable()
 export class OrdersService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    @Inject(forwardRef(() => NotificationsService))
+    private notificationsService: NotificationsService,
+  ) {}
 
   // Получить ID водителя по ID пользователя
   async getDriverIdByUserId(userId: number): Promise<number> {
@@ -29,7 +34,7 @@ export class OrdersService {
     // Извлекаем дополнительные услуги из DTO
     const { additionalServices, ...orderData } = createOrderDto;
 
-    return this.prisma.order.create({
+    const order = await this.prisma.order.create({
       data: {
         ...orderData,
         orderNumber,
@@ -66,21 +71,44 @@ export class OrdersService {
         },
       },
     });
+
+    // Создаем уведомления для Директора, Снабженца и Диспетчера о новом заказе
+    try {
+      await this.notificationsService.createNotificationsForRoles(
+        [UserRole.DIRECTOR, UserRole.SUPPLIER, UserRole.DISPATCHER],
+        NotificationType.ORDER_CREATED,
+        'Новый заказ создан',
+        `Поступил новый заказ на доставку №${orderNumber}`,
+        order.id,
+        'order',
+      );
+    } catch (error) {
+      console.error('Ошибка при создании уведомлений:', error);
+    }
+
+    return order;
   }
 
   async findAll(page: number = 1, limit: number = 10, search?: string, status?: OrderStatus, user?: any) {
     const skip = (page - 1) * limit;
     
-    const where: any = {};
+    const where: any = {
+      deletedAt: null, // Исключаем удаленные заказы из основного списка
+    };
     
-    // Только Директор, Диспетчер, Бухгалтер, Оператор видят все заказы
-    // Остальные (Менеджер, Водитель, Снабженец) видят только свои созданные заказы
-    const canViewAll = user && ['DIRECTOR', 'DISPATCHER', 'ACCOUNTANT', 'OPERATOR', 'ADMIN', 'DEVELOPER'].includes(user.role);
-    
-    if (user && !canViewAll) {
-      // Менеджер и другие видят только свои созданные заказы
-      const currentUserId = user.userId || user.id;
-      where.createdById = currentUserId;
+    if (user) {
+      // Проверяем, может ли пользователь видеть все заказы
+      const canViewAll = ['DIRECTOR', 'DISPATCHER', 'ACCOUNTANT', 'OPERATOR', 'ADMIN', 'DEVELOPER'].includes(user.role);
+      
+      // Если явно указан флаг filterByUserId (для /orders/my) или это роль без полного доступа
+      if (user.filterByUserId === true || !canViewAll) {
+        // Фильтруем по ID пользователя
+        const currentUserId = user.userId || user.id;
+        if (currentUserId) {
+          where.createdById = currentUserId;
+        }
+      }
+      // Если canViewAll === true и filterByUserId !== true, не добавляем фильтр - показываем все заказы
     }
     
     if (search) {
@@ -249,9 +277,14 @@ export class OrdersService {
     };
   }
 
-  async findOne(id: number) {
+  async findOne(id: number, includeDeleted: boolean = false) {
+    const where: any = { id };
+    if (!includeDeleted) {
+      where.deletedAt = null; // Исключаем удаленные заказы по умолчанию
+    }
+
     const order = await this.prisma.order.findUnique({
-      where: { id },
+      where,
       include: {
         customer: true,
         concreteMark: {
@@ -269,6 +302,7 @@ export class OrdersService {
         },
         createdBy: true,
         approvedBy: true,
+        deletedBy: true,
         deletionRequestedBy: true,
         invoices: {
           include: {
@@ -302,6 +336,15 @@ export class OrdersService {
 
   async update(id: number, updateOrderDto: UpdateOrderDto, userId: number) {
     const order = await this.findOne(id);
+
+    // КРИТИЧЕСКИ ВАЖНО: quantityM3 заказа НИКОГДА не должен изменяться!
+    // Это изначальный объем заказа, который устанавливается при создании и остается неизменным.
+    if ('quantityM3' in updateOrderDto && (updateOrderDto as any).quantityM3 !== undefined) {
+      throw new BadRequestException(
+        'Изначальный объем заказа (quantityM3) не может быть изменен. ' +
+        'Это значение устанавливается при создании заказа и остается постоянным.'
+      );
+    }
 
     // Только создатель может редактировать заказ
     if (order.createdById !== userId) {
@@ -347,9 +390,16 @@ export class OrdersService {
       throw new BadRequestException(message);
     }
 
+    // Явно исключаем quantityM3 из данных обновления (на случай если он каким-то образом попал в DTO)
+    const { quantityM3, ...safeUpdateData } = updateOrderDto as any;
+    
+    if (quantityM3 !== undefined) {
+      console.error('⚠️ КРИТИЧЕСКАЯ ОШИБКА: Попытка изменить quantityM3 заказа через update! Заказ ID:', id);
+    }
+
     return this.prisma.order.update({
       where: { id },
-      data: updateOrderDto,
+      data: safeUpdateData,
       include: {
         customer: true,
         concreteMark: {
@@ -378,313 +428,122 @@ export class OrdersService {
     });
   }
 
+  // Удаление заказов полностью запрещено - все заказы сохраняются в истории
   async remove(id: number, userId: number, userRole: string) {
-    const order = await this.findOne(id);
-
-    // Проверяем права на удаление - только создатель, директор, диспетчер или админ
-    const canDelete = 
-      userRole === 'ADMIN' || 
-      userRole === 'DEVELOPER' ||
-      order.createdById === userId || // Создатель
-      userRole === 'DIRECTOR' ||       // Директор
-      userRole === 'DISPATCHER';       // Диспетчер
-
-    if (!canDelete) {
-      throw new BadRequestException('У вас нет прав на удаление этого заказа');
-    }
-
-    // Статусы, для которых можно удалить сразу (до принятия директором)
-    const canDeleteDirectly: OrderStatus[] = [
-      OrderStatus.DRAFT,
-      OrderStatus.PENDING_DIRECTOR,
-      OrderStatus.WAITING_CREATOR_APPROVAL,
-      OrderStatus.REJECTED,
-      OrderStatus.CANCELED,
-    ];
-
-    // Если заказ уже принят - нельзя удалить напрямую
-    if (!canDeleteDirectly.includes(order.status as OrderStatus)) {
-      const statusNames = {
-        PENDING_DISPATCHER: 'ожидает диспетчера',
-        DISPATCHED: 'отправлен',
-        IN_DELIVERY: 'в доставке',
-        DELIVERED: 'доставлен',
-        COMPLETED: 'завершён',
-        APPROVED_BY_DIRECTOR: 'одобрен директором',
-      };
-      
-      const statusText = statusNames[order.status] || order.status;
-      
-      throw new BadRequestException(
-        `Нельзя напрямую удалить заказ №${order.orderNumber}. ` +
-        `Статус заказа: "${statusText}". ` +
-        `Для удаления принятого заказа нужно подтверждение от директора, диспетчера и создателя. ` +
-        `Используйте кнопку "Запросить удаление".`
-      );
-    }
-
-    // Проверяем, что у заказа нет связанных накладных
-    const relatedData = await this.prisma.order.findUnique({
-      where: { id },
-      include: {
-        invoices: true,
-      },
-    });
-
-    if (relatedData.invoices && relatedData.invoices.length > 0) {
-      throw new BadRequestException(
-        `Нельзя удалить заказ №${order.orderNumber}. ` +
-        `К нему привязаны накладные (${relatedData.invoices.length} шт). ` +
-        `Сначала удалите все накладные.`
-      );
-    }
-
-    await this.prisma.order.delete({
-      where: { id },
-    });
-
-    return { message: 'Заказ успешно удалён' };
+    throw new BadRequestException(
+      'Удаление заказов полностью запрещено. Все заказы сохраняются в истории системы для аудита и отчетности. ' +
+      'Для просмотра истории удаленных заказов используйте эндпоинт /orders/history/deleted.'
+    );
   }
 
+  // Удаление заказов полностью запрещено
   // Запросить удаление заказа (для принятых заказов)
   async requestDeletion(id: number, userId: number, userRole: string, reason: string) {
-    const order = await this.findOne(id);
-
-    // Проверяем права: директор, диспетчер или создатель
-    const canRequest = 
-      userRole === 'ADMIN' || 
-      userRole === 'DEVELOPER' ||
-      order.createdById === userId ||
-      userRole === 'DIRECTOR' ||
-      userRole === 'DISPATCHER';
-
-    if (!canRequest) {
-      throw new BadRequestException('У вас нет прав на запрос удаления этого заказа');
-    }
-
-    // Проверяем, что заказ уже принят (нельзя запросить удаление для непринятых)
-    const canRequestDeletion: OrderStatus[] = [
-      OrderStatus.PENDING_DISPATCHER,
-      OrderStatus.DISPATCHED,
-      OrderStatus.IN_DELIVERY,
-      OrderStatus.DELIVERED,
-    ];
-
-    if (!canRequestDeletion.includes(order.status as OrderStatus)) {
-      const statusNames = {
-        PENDING_DIRECTOR: 'ожидает директора',
-        WAITING_CREATOR_APPROVAL: 'ожидает подтверждения создателя',
-        REJECTED: 'отклонён',
-        CANCELED: 'отменён',
-      };
-      
-      const statusText = statusNames[order.status] || order.status;
-      
-      throw new BadRequestException(
-        `Запрос на удаление недоступен для заказа №${order.orderNumber}. ` +
-        `Статус заказа: "${statusText}". ` +
-        `Для таких заказов используйте обычное удаление.`
-      );
-    }
-
-    // Проверяем, нет ли уже запроса
-    if (order.deletionRequestedById) {
-      const requester = order.deletionRequestedBy 
-        ? `${order.deletionRequestedBy.firstName} ${order.deletionRequestedBy.lastName}`
-        : 'неизвестный пользователь';
-      
-      const approvals = [];
-      if (order.directorApprovedDeletion) approvals.push('директор');
-      if (order.dispatcherApprovedDeletion) approvals.push('диспетчер');
-      if (order.creatorApprovedDeletion) approvals.push('создатель');
-      
-      const pending = [];
-      if (!order.directorApprovedDeletion) pending.push('директора');
-      if (!order.dispatcherApprovedDeletion) pending.push('диспетчера');
-      if (!order.creatorApprovedDeletion) pending.push('создателя');
-      
-      throw new BadRequestException(
-        `Запрос на удаление заказа №${order.orderNumber} уже отправлен (${requester}). ` +
-        `Подтвердили: ${approvals.join(', ') || 'никто'}. ` +
-        `Ожидается подтверждение от: ${pending.join(', ')}.`
-      );
-    }
-
-    // Проверяем накладные
-    if (order.invoices && order.invoices.length > 0) {
-      throw new BadRequestException(
-        `Нельзя удалить заказ №${order.orderNumber}. ` +
-        `К нему привязаны накладные (${order.invoices.length} шт). ` +
-        `Сначала удалите все накладные.`
-      );
-    }
-
-    // Автоматически проставляем подтверждение от инициатора запроса
-    const updateData: any = {
-      deletionRequestedById: userId,
-      deletionReason: reason,
-      deletionRequestedAt: new Date(),
-    };
-
-    // Инициатор автоматически подтверждает
-    if (userRole === 'DIRECTOR') {
-      updateData.directorApprovedDeletion = true;
-    } else if (userRole === 'DISPATCHER') {
-      updateData.dispatcherApprovedDeletion = true;
-    } else if (order.createdById === userId) {
-      updateData.creatorApprovedDeletion = true;
-    }
-
-    return this.prisma.order.update({
-      where: { id },
-      data: updateData,
-      include: {
-        customer: true,
-        concreteMark: true,
-        createdBy: true,
-        approvedBy: true,
-        deletionRequestedBy: true,
-        additionalServices: {
-          include: {
-            additionalService: true,
-          },
-        },
-      },
-    });
+    throw new BadRequestException(
+      'Удаление заказов полностью запрещено. Все заказы сохраняются в истории системы для аудита и отчетности.'
+    );
   }
 
+  // Удаление заказов полностью запрещено
   // Подтвердить удаление (директор/диспетчер/создатель)
   async approveDeletion(id: number, userId: number, userRole: string) {
-    const order = await this.findOne(id);
-
-    if (!order.deletionRequestedById) {
-      throw new BadRequestException(
-        `Нет запроса на удаление для заказа №${order.orderNumber}. ` +
-        `Сначала создайте запрос на удаление.`
-      );
-    }
-
-    if (order.invoices && order.invoices.length > 0) {
-      throw new BadRequestException(
-        `Нельзя удалить заказ №${order.orderNumber}. ` +
-        `К нему привязаны накладные (${order.invoices.length} шт). ` +
-        `Сначала удалите все накладные.`
-      );
-    }
-
-    const updateData: any = {};
-
-    // Проставляем подтверждение в зависимости от роли
-    if (userRole === 'DIRECTOR') {
-      if (order.directorApprovedDeletion) {
-        throw new BadRequestException(
-          `Вы (директор) уже подтвердили удаление заказа №${order.orderNumber}.`
-        );
-      }
-      updateData.directorApprovedDeletion = true;
-    } else if (userRole === 'DISPATCHER') {
-      if (order.dispatcherApprovedDeletion) {
-        throw new BadRequestException(
-          `Вы (диспетчер) уже подтвердили удаление заказа №${order.orderNumber}.`
-        );
-      }
-      updateData.dispatcherApprovedDeletion = true;
-    } else if (order.createdById === userId) {
-      if (order.creatorApprovedDeletion) {
-        throw new BadRequestException(
-          `Вы (создатель) уже подтвердили удаление заказа №${order.orderNumber}.`
-        );
-      }
-      updateData.creatorApprovedDeletion = true;
-    } else {
-      throw new BadRequestException('У вас нет прав на подтверждение удаления этого заказа');
-    }
-
-    // Обновляем заказ
-    const updated = await this.prisma.order.update({
-      where: { id },
-      data: updateData,
-      include: {
-        customer: true,
-        concreteMark: true,
-        createdBy: true,
-        approvedBy: true,
-        deletionRequestedBy: true,
-        additionalServices: {
-          include: {
-            additionalService: true,
-          },
-        },
-      },
-    });
-
-    // Проверяем, все ли три стороны подтвердили
-    const allApproved = 
-      updated.directorApprovedDeletion && 
-      updated.dispatcherApprovedDeletion && 
-      updated.creatorApprovedDeletion;
-
-    if (allApproved) {
-      // Все подтвердили - удаляем заказ
-      await this.prisma.order.delete({
-        where: { id },
-      });
-
-      return { message: 'Заказ удалён (все три стороны подтвердили)', deleted: true };
-    }
-
-    return { message: 'Ваше подтверждение принято. Ожидаем подтверждения от остальных', order: updated, deleted: false };
+    throw new BadRequestException(
+      'Удаление заказов полностью запрещено. Все заказы сохраняются в истории системы для аудита и отчетности.'
+    );
   }
 
+  // Получить историю удаленных заказов
+  async getDeletedOrdersHistory(page: number = 1, limit: number = 10, search?: string, user?: any) {
+    const skip = (page - 1) * limit;
+    
+    const where: any = {
+      deletedAt: { not: null }, // Только удаленные заказы
+    };
+    
+    if (user) {
+      // Для менеджера показываем только его удаленные заказы
+      const canViewAll = ['DIRECTOR', 'DISPATCHER', 'ACCOUNTANT', 'OPERATOR', 'ADMIN', 'DEVELOPER'].includes(user.role);
+      
+      if (!canViewAll || user.filterByUserId === true) {
+        const currentUserId = user.userId || user.id;
+        if (currentUserId) {
+          where.createdById = currentUserId;
+        }
+      }
+    }
+    
+    if (search) {
+      where.OR = [
+        { orderNumber: { contains: search, mode: 'insensitive' as const } },
+        { deliveryAddress: { contains: search, mode: 'insensitive' as const } },
+        { notes: { contains: search, mode: 'insensitive' as const } },
+        { deletionReason: { contains: search, mode: 'insensitive' as const } },
+      ];
+    }
+
+    const [orders, total] = await Promise.all([
+      this.prisma.order.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: { deletedAt: 'desc' }, // Сначала недавно удаленные
+        include: {
+          customer: true,
+          concreteMark: true,
+          createdBy: true,
+          approvedBy: true,
+          deletedBy: true,
+          deletionRequestedBy: true,
+          invoices: {
+            include: {
+              driver: true,
+              vehicle: true,
+            },
+          },
+        },
+      }),
+      this.prisma.order.count({ where }),
+    ]);
+
+    return {
+      data: orders,
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
+  }
+
+  // Удаление заказов полностью запрещено
   // Отклонить запрос на удаление (любая из трех сторон)
   async rejectDeletion(id: number, userId: number, userRole: string) {
-    const order = await this.findOne(id);
-
-    if (!order.deletionRequestedById) {
-      throw new BadRequestException('Нет запроса на удаление для этого заказа');
-    }
-
-    // Проверяем права: директор, диспетчер или создатель могут отклонить
-    const canReject = 
-      userRole === 'DIRECTOR' ||
-      userRole === 'DISPATCHER' ||
-      order.createdById === userId;
-
-    if (!canReject) {
-      throw new BadRequestException('У вас нет прав на отклонение этого запроса');
-    }
-
-    // Сбрасываем все поля запроса на удаление
-    return this.prisma.order.update({
-      where: { id },
-      data: {
-        deletionRequestedById: null,
-        deletionReason: null,
-        deletionRequestedAt: null,
-        directorApprovedDeletion: false,
-        dispatcherApprovedDeletion: false,
-        creatorApprovedDeletion: false,
-      },
-      include: {
-        customer: true,
-        concreteMark: true,
-        createdBy: true,
-        approvedBy: true,
-        additionalServices: {
-          include: {
-            additionalService: true,
-          },
-        },
-      },
-    });
+    throw new BadRequestException(
+      'Удаление заказов полностью запрещено. Все заказы сохраняются в истории системы для аудита и отчетности.'
+    );
   }
 
-  async updateStatus(id: number, status: OrderStatus) {
+  async updateStatus(id: number, status: OrderStatus, userId?: number) {
     const order = await this.findOne(id);
 
-    return this.prisma.order.update({
+    // КРИТИЧЕСКИ ВАЖНО: quantityM3 заказа НИКОГДА не должен изменяться!
+    const updateData: any = { status };
+    
+    // Явно исключаем quantityM3 (на случай если он каким-то образом попал в updateData)
+    if ('quantityM3' in updateData) {
+      delete updateData.quantityM3;
+      console.error('⚠️ КРИТИЧЕСКАЯ ОШИБКА: Попытка изменить quantityM3 заказа через updateStatus! Заказ ID:', id);
+    }
+    
+    // Если директор одобряет заказ, устанавливаем approvedById
+    if (status === OrderStatus.APPROVED_BY_DIRECTOR && userId) {
+      updateData.approvedById = userId;
+    }
+
+    const updatedOrder = await this.prisma.order.update({
       where: { id },
-      data: { status },
+      data: updateData,
       include: {
         customer: true,
         concreteMark: true,
@@ -693,6 +552,43 @@ export class OrdersService {
         invoices: true,
       },
     });
+
+    // Создаем уведомления при изменении статуса
+    try {
+      if (status === OrderStatus.APPROVED_BY_DIRECTOR) {
+        // Уведомление для бухгалтера о том, что заказ одобрен директором
+        await this.notificationsService.createNotificationsForRoles(
+          [UserRole.ACCOUNTANT],
+          NotificationType.ORDER_APPROVED,
+          'Заказ одобрен директором',
+          `Директор одобрил заказ №${updatedOrder.orderNumber}`,
+          updatedOrder.id,
+          'order',
+        );
+      } else if (status === OrderStatus.COMPLETED) {
+        // Уведомление для всех участников заказа о завершении
+        const participantRoles: UserRole[] = [UserRole.MANAGER, UserRole.DISPATCHER, UserRole.ACCOUNTANT, UserRole.SUPPLIER];
+        if (updatedOrder.createdBy) {
+          // Получаем роль создателя
+          const creatorRole = updatedOrder.createdBy.role;
+          if (!participantRoles.includes(creatorRole)) {
+            participantRoles.push(creatorRole);
+          }
+        }
+        await this.notificationsService.createNotificationsForRoles(
+          participantRoles,
+          NotificationType.ORDER_COMPLETED,
+          'Заказ полностью выполнен',
+          `Заказ №${updatedOrder.orderNumber} закрыт`,
+          updatedOrder.id,
+          'order',
+        );
+      }
+    } catch (error) {
+      console.error('Ошибка при создании уведомлений:', error);
+    }
+
+    return updatedOrder;
   }
 
   async getStats() {
@@ -850,7 +746,7 @@ export class OrdersService {
       );
     }
 
-    return this.prisma.order.update({
+    const updatedOrder = await this.prisma.order.update({
       where: { id: orderId },
       data: {
         proposedDeliveryDate: new Date(proposeChangesDto.deliveryDate),
@@ -875,6 +771,25 @@ export class OrdersService {
         },
       },
     });
+
+    // Создаем уведомление для создателя заказа о предложенных изменениях
+    try {
+      if (updatedOrder.createdBy) {
+        await this.notificationsService.createNotification(
+          updatedOrder.createdBy.id,
+          NotificationType.ORDER_APPROVED, // Можно использовать существующий тип или создать новый
+          'Директор предложил изменения в заказ',
+          `Директор предложил изменить параметры доставки для заказа №${updatedOrder.orderNumber}. Проверьте предложенные изменения и подтвердите или отклоните их.`,
+          updatedOrder.id,
+          'order',
+        );
+      }
+    } catch (error) {
+      console.error('Ошибка при создании уведомления о предложенных изменениях:', error);
+      // Не прерываем выполнение, если уведомление не создалось
+    }
+
+    return updatedOrder;
   }
 
   // Создатель принимает предложенные изменения

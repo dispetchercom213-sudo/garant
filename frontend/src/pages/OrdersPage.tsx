@@ -29,9 +29,10 @@ export const OrdersPage: React.FC = () => {
   
   const { data: orders, loading, refetch } = useApiData<Order>({
     apiCall: () => {
-      // Для водителей используем /orders/my, для остальных - /orders
-      const isDriver = user?.role === 'DRIVER';
-      const apiCall = isDriver ? ordersApi.getMy : ordersApi.getAll;
+      // Для водителей и менеджеров используем /orders/my (только свои заказы)
+      // Для остальных - /orders (с фильтрацией по правам доступа)
+      const useMyOrders = user?.role === 'DRIVER' || user?.role === 'MANAGER' || user?.role === 'OPERATOR';
+      const apiCall = useMyOrders ? ordersApi.getMy : ordersApi.getAll;
       
       return apiCall({ search: searchQuery });
     },

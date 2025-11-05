@@ -32,6 +32,10 @@ export function useApiData<T>({
         responseData = response.data.items;
       } else if (response.data?.results && Array.isArray(response.data.results)) {
         responseData = response.data.results;
+      } else if (response.data && typeof response.data === 'object' && !Array.isArray(response.data)) {
+        // Если это объект (например, статистика dashboard), возвращаем его как массив с одним элементом
+        // Это позволит использовать useApiData для объектов, но данные нужно будет извлекать из data[0]
+        responseData = [response.data] as T[];
       } else {
         console.warn('Unexpected API response format:', response.data);
         responseData = [];

@@ -33,7 +33,7 @@ export const PageContainer: React.FC<PageContainerProps> = ({
   return (
     <div 
       className={cn(
-        'w-full mx-auto mobile-scroll mobile-no-overflow-x',
+        'w-full mx-auto mobile-scroll mobile-no-overflow-x bg-white',
         maxWidthClasses[maxWidth],
         paddingClasses[padding],
         className

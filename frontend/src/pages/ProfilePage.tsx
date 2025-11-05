@@ -19,6 +19,7 @@ const roleLabels: Record<string, string> = {
   SUPPLIER: 'Поставщик',
   OPERATOR: 'Оператор',
   DRIVER: 'Водитель',
+  CLIENT: 'Клиент',
 };
 
 export const ProfilePage: React.FC = () => {
@@ -212,6 +213,7 @@ export const ProfilePage: React.FC = () => {
               </div>
             </div>
 
+
             {user.currentRole && user.currentRole !== user.role && (
               <div className="flex items-start gap-3">
                 <div className="w-32 text-sm text-gray-600">Текущая роль:</div>
@@ -310,6 +312,7 @@ export const ProfilePage: React.FC = () => {
                 <p className="text-red-500 text-sm mt-1">{profileErrors.phone}</p>
               )}
             </div>
+
           </div>
 
           <DialogFooter>

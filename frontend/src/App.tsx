@@ -23,6 +23,7 @@ const RoleBasedRedirect = memo(() => {
       return <Navigate to="/dashboard" replace />;
     
     case UserRole.MANAGER:
+    case UserRole.CLIENT:
       return <Navigate to="/orders" replace />;
     
     case UserRole.DRIVER:
@@ -36,6 +37,9 @@ import { LoginPage } from './pages/LoginPage';
 import { DashboardPageNew as DashboardPage } from './pages/DashboardPageNew';
 import { CompaniesPageNew as CompaniesPage } from './pages/CompaniesPageNew';
 import { CounterpartiesPageNew as CounterpartiesPage } from './pages/CounterpartiesPageNew';
+import { CounterpartyReportPage } from './pages/CounterpartyReportPage';
+import { VehiclesReportPage } from './pages/VehiclesReportPage';
+import { MaterialBalancesPage } from './pages/MaterialBalancesPage';
 import { WarehousesPageNew as WarehousesPage } from './pages/WarehousesPageNew';
 import { MaterialsPageNew as MaterialsPage } from './pages/MaterialsPageNew';
 import { ConcreteMarksPageNew as ConcreteMarksPage } from './pages/ConcreteMarksPageNew';
@@ -48,10 +52,14 @@ import { IncomeInvoicesPage } from './pages/IncomeInvoicesPage';
 import { ExpenseInvoicesPage } from './pages/ExpenseInvoicesPage';
 import { UsersPageNew as UsersPage } from './pages/UsersPageNew';
 import { ReportsPage } from './pages/ReportsPage';
+import { MyReportsPage } from './pages/MyReportsPage';
+import { ManagerMapPage } from './pages/ManagerMapPage';
+import { AllVehiclesMapPage } from './pages/AllVehiclesMapPage';
 import EmailSettingsPage from './pages/EmailSettingsPage';
 import MyInvoicesDriverPage from './pages/MyInvoicesDriverPage';
 import MyIncomeInvoicesDriverPage from './pages/MyIncomeInvoicesDriverPage';
 import DriverWeighingWizard from './pages/DriverWeighingWizard';
+import DriverWeighingHistoryPage from './pages/DriverWeighingHistoryPage';
 import { ProfilePage } from './pages/ProfilePage';
 import { TestPage } from './pages/TestPage';
 import { MyRequestsPage } from './pages/MyRequestsPage';
@@ -84,42 +92,57 @@ const App = memo(() => {
                 <Routes>
                   <Route path="/" element={<RoleBasedRedirect />} />
                   <Route path="/dashboard" element={
-                    <RoleProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.DEVELOPER, UserRole.DIRECTOR, UserRole.ACCOUNTANT, UserRole.DISPATCHER, UserRole.OPERATOR, UserRole.SUPPLIER]}>
+                    <RoleProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.DEVELOPER, UserRole.DIRECTOR, UserRole.ACCOUNTANT, UserRole.DISPATCHER, UserRole.OPERATOR, UserRole.SUPPLIER, UserRole.DRIVER]}>
                       <DashboardPage />
                     </RoleProtectedRoute>
                   } />
                   <Route path="/companies" element={
-                    <RoleProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.DEVELOPER, UserRole.DIRECTOR]}>
+                    <RoleProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.DEVELOPER, UserRole.DIRECTOR, UserRole.DISPATCHER, UserRole.OPERATOR]}>
                       <CompaniesPage />
                     </RoleProtectedRoute>
                   } />
                   <Route path="/counterparties" element={
-                    <RoleProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.DEVELOPER, UserRole.DIRECTOR, UserRole.MANAGER]}>
+                    <RoleProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.DEVELOPER, UserRole.DIRECTOR, UserRole.MANAGER, UserRole.DISPATCHER, UserRole.OPERATOR]}>
                       <CounterpartiesPage />
                     </RoleProtectedRoute>
                   } />
+                  <Route path="/reports/counterparty/:id" element={
+                    <RoleProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.DEVELOPER, UserRole.DIRECTOR, UserRole.ACCOUNTANT, UserRole.MANAGER, UserRole.DISPATCHER]}>
+                      <CounterpartyReportPage />
+                    </RoleProtectedRoute>
+                  } />
+                  <Route path="/reports/vehicles" element={
+                    <RoleProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.DEVELOPER, UserRole.DIRECTOR]}>
+                      <VehiclesReportPage />
+                    </RoleProtectedRoute>
+                  } />
+                  <Route path="/warehouses/material-balances" element={
+                    <RoleProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.DEVELOPER, UserRole.DIRECTOR, UserRole.SUPPLIER, UserRole.DISPATCHER, UserRole.ACCOUNTANT]}>
+                      <MaterialBalancesPage />
+                    </RoleProtectedRoute>
+                  } />
                   <Route path="/warehouses" element={
-                    <RoleProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.DEVELOPER, UserRole.DIRECTOR, UserRole.DISPATCHER]}>
+                    <RoleProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.DEVELOPER, UserRole.DIRECTOR, UserRole.DISPATCHER, UserRole.OPERATOR]}>
                       <WarehousesPage />
                     </RoleProtectedRoute>
                   } />
                   <Route path="/materials" element={
-                    <RoleProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.DEVELOPER, UserRole.DIRECTOR, UserRole.DISPATCHER]}>
+                    <RoleProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.DEVELOPER, UserRole.DIRECTOR, UserRole.DISPATCHER, UserRole.OPERATOR]}>
                       <MaterialsPage />
                     </RoleProtectedRoute>
                   } />
                   <Route path="/concrete-marks" element={
-                    <RoleProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.DEVELOPER, UserRole.DIRECTOR, UserRole.DISPATCHER]}>
+                    <RoleProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.DEVELOPER, UserRole.DIRECTOR, UserRole.DISPATCHER, UserRole.OPERATOR]}>
                       <ConcreteMarksPage />
                     </RoleProtectedRoute>
                   } />
                   <Route path="/drivers" element={
-                    <RoleProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.DEVELOPER, UserRole.DIRECTOR, UserRole.DISPATCHER]}>
+                    <RoleProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.DEVELOPER, UserRole.DIRECTOR, UserRole.DISPATCHER, UserRole.OPERATOR]}>
                       <DriversPage />
                     </RoleProtectedRoute>
                   } />
                   <Route path="/vehicles" element={
-                    <RoleProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.DEVELOPER, UserRole.DIRECTOR, UserRole.DISPATCHER, UserRole.MANAGER]}>
+                    <RoleProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.DEVELOPER, UserRole.DIRECTOR, UserRole.DISPATCHER, UserRole.OPERATOR]}>
                       <VehiclesPage />
                     </RoleProtectedRoute>
                   } />
@@ -128,17 +151,21 @@ const App = memo(() => {
                       <MyVehiclesPage />
                     </RoleProtectedRoute>
                   } />
-                  <Route path="/orders" element={<OrdersPage />} />
+                  <Route path="/orders" element={
+                    <RoleProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.DEVELOPER, UserRole.DIRECTOR, UserRole.MANAGER, UserRole.DISPATCHER, UserRole.OPERATOR, UserRole.ACCOUNTANT, UserRole.DRIVER, UserRole.CLIENT]}>
+                      <OrdersPage />
+                    </RoleProtectedRoute>
+                  } />
                   {/* Старый маршрут для обратной совместимости */}
                   <Route path="/invoices" element={<InvoicesPage />} />
                   {/* Новые маршруты для приходных и расходных накладных */}
                   <Route path="/invoices/income" element={
-                    <RoleProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.DEVELOPER, UserRole.DIRECTOR, UserRole.DISPATCHER, UserRole.OPERATOR, UserRole.ACCOUNTANT]}>
+                    <RoleProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.DEVELOPER, UserRole.DIRECTOR, UserRole.DISPATCHER, UserRole.OPERATOR, UserRole.ACCOUNTANT, UserRole.CLIENT]}>
                       <IncomeInvoicesPage />
                     </RoleProtectedRoute>
                   } />
                   <Route path="/invoices/expense" element={
-                    <RoleProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.DEVELOPER, UserRole.DIRECTOR, UserRole.DISPATCHER]}>
+                    <RoleProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.DEVELOPER, UserRole.DIRECTOR, UserRole.DISPATCHER, UserRole.OPERATOR]}>
                       <ExpenseInvoicesPage />
                     </RoleProtectedRoute>
                   } />
@@ -157,14 +184,34 @@ const App = memo(() => {
                       <DriverWeighingWizard />
                     </RoleProtectedRoute>
                   } />
+                  <Route path="/weighing-history" element={
+                    <RoleProtectedRoute allowedRoles={[UserRole.DRIVER, UserRole.DEVELOPER]}>
+                      <DriverWeighingHistoryPage />
+                    </RoleProtectedRoute>
+                  } />
                   <Route path="/users" element={
                     <RoleProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.DEVELOPER, UserRole.DIRECTOR]}>
                       <UsersPage />
                     </RoleProtectedRoute>
                   } />
                   <Route path="/reports" element={
-                    <RoleProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.DEVELOPER, UserRole.DIRECTOR, UserRole.MANAGER, UserRole.ACCOUNTANT]}>
+                    <RoleProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.DEVELOPER, UserRole.DIRECTOR, UserRole.ACCOUNTANT]}>
                       <ReportsPage />
+                    </RoleProtectedRoute>
+                  } />
+                  <Route path="/my-reports" element={
+                    <RoleProtectedRoute allowedRoles={[UserRole.MANAGER, UserRole.CLIENT]}>
+                      <MyReportsPage />
+                    </RoleProtectedRoute>
+                  } />
+                  <Route path="/my-map" element={
+                    <RoleProtectedRoute allowedRoles={[UserRole.MANAGER, UserRole.CLIENT]}>
+                      <ManagerMapPage />
+                    </RoleProtectedRoute>
+                  } />
+                  <Route path="/all-vehicles-map" element={
+                    <RoleProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.DEVELOPER, UserRole.DIRECTOR, UserRole.DISPATCHER, UserRole.OPERATOR]}>
+                      <AllVehiclesMapPage />
                     </RoleProtectedRoute>
                   } />
                   <Route path="/email-settings" element={

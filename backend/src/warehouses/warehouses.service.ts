@@ -2,6 +2,7 @@ import { Injectable, NotFoundException, BadRequestException } from '@nestjs/comm
 import { PrismaService } from '../common/prisma/prisma.service';
 import { CreateWarehouseDto } from './dto/create-warehouse.dto';
 import { UpdateWarehouseDto } from './dto/update-warehouse.dto';
+import { InvoiceType } from '@prisma/client';
 
 @Injectable()
 export class WarehousesService {
@@ -266,5 +267,277 @@ export class WarehousesService {
         warehouse: true,
       },
     });
+  }
+
+  async getAllMaterialBalances(warehouseId?: number, startDate?: Date, endDate?: Date) {
+    try {
+      // Получаем все склады
+      const warehousesWhere: any = {};
+      if (warehouseId) {
+        warehousesWhere.id = warehouseId;
+      }
+
+      const warehouses = await this.prisma.warehouse.findMany({
+        where: warehousesWhere,
+        include: {
+          company: true,
+        },
+        orderBy: {
+          name: 'asc',
+        },
+      });
+
+      console.log(`✅ Найдено складов: ${warehouses.length}`);
+
+      // Получаем все материалы
+      const materials = await this.prisma.material.findMany({
+        include: {
+          type: true,
+        },
+        orderBy: {
+          name: 'asc',
+        },
+      });
+
+      console.log(`✅ Найдено материалов: ${materials.length}`);
+
+      // Получаем остатки материалов на складах
+      const balancesWhere: any = {};
+      if (warehouseId) {
+        balancesWhere.warehouseId = warehouseId;
+      }
+
+      const balances = await this.prisma.warehouseMaterialBalance.findMany({
+        where: balancesWhere,
+        include: {
+          material: {
+            include: {
+              type: true,
+            },
+          },
+          warehouse: true,
+        },
+      });
+
+      console.log(`✅ Найдено остатков: ${balances.length}`);
+
+      // Получаем расходные накладные для расчета расходования материалов
+      // Расход рассчитывается из состава марки бетона и объема накладной
+      const invoicesWhere: any = {
+        type: InvoiceType.EXPENSE, // Только расходные накладные
+      };
+
+      // Фильтр по складу
+      if (warehouseId) {
+        invoicesWhere.warehouseId = warehouseId;
+      }
+
+      if (startDate && endDate) {
+        // Устанавливаем время начала на начало дня, а конец - на конец дня
+        const start = new Date(startDate);
+        start.setHours(0, 0, 0, 0);
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+        
+        invoicesWhere.date = {
+          gte: start,
+          lte: end,
+        };
+      } else if (startDate) {
+        const start = new Date(startDate);
+        start.setHours(0, 0, 0, 0);
+        invoicesWhere.date = {
+          gte: start,
+        };
+      } else if (endDate) {
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+        invoicesWhere.date = {
+          lte: end,
+        };
+      }
+
+      console.log('🔍 Поиск расходных накладных с условием:', JSON.stringify(invoicesWhere, null, 2));
+      const invoices = await this.prisma.invoice.findMany({
+        where: invoicesWhere,
+        include: {
+          warehouse: true,
+          concreteMark: {
+            include: {
+              materials: {
+                include: {
+                  material: {
+                    include: {
+                      type: true,
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+        orderBy: {
+          date: 'desc',
+        },
+      });
+
+      console.log(`✅ Найдено расходных накладных: ${invoices.length}`);
+      
+      // Дополнительная информация о найденных накладных
+      if (invoices.length > 0) {
+        console.log('📋 Найденные накладные:');
+        invoices.forEach((inv) => {
+          console.log(`  - Накладная ${inv.invoiceNumber || inv.id}:`, {
+            date: inv.date,
+            warehouseId: inv.warehouseId,
+            concreteMarkId: inv.concreteMarkId,
+            quantityM3: inv.quantityM3,
+            hasConcreteMark: !!inv.concreteMark,
+            hasMaterials: !!(inv.concreteMark as any)?.materials,
+          });
+        });
+      } else {
+        console.warn('⚠️ Не найдено расходных накладных! Проверьте условия поиска.');
+      }
+
+      // Рассчитываем расход материалов из состава марок бетона
+      const consumedByWarehouseMaterial = new Map<string, number>();
+      
+      invoices.forEach((invoice) => {
+        console.log(`📋 Обработка накладной ${invoice.id}:`, {
+          invoiceNumber: invoice.invoiceNumber,
+          warehouseId: invoice.warehouseId,
+          concreteMarkId: invoice.concreteMarkId,
+          quantityM3: invoice.quantityM3,
+          hasConcreteMark: !!invoice.concreteMark,
+        });
+
+        if (!invoice.warehouseId) {
+          console.warn('⚠️ Накладная без склада:', invoice.id);
+          return;
+        }
+
+        if (!invoice.concreteMark) {
+          console.warn('⚠️ Накладная без марки бетона:', invoice.id);
+          return;
+        }
+
+        if (!invoice.quantityM3) {
+          console.warn('⚠️ Накладная без объема:', invoice.id);
+          return;
+        }
+
+        const quantityM3 = invoice.quantityM3;
+        const concreteMark = invoice.concreteMark as any;
+
+        console.log(`  Марка бетона: ${concreteMark.name}, объем: ${quantityM3} м³`);
+        console.log(`  Состав марки (materials):`, concreteMark.materials ? `${concreteMark.materials.length} материалов` : 'отсутствует');
+
+        // Если есть состав марки бетона, рассчитываем расход материалов
+        if (concreteMark.materials && Array.isArray(concreteMark.materials)) {
+          concreteMark.materials.forEach((markMaterial: any) => {
+            if (!markMaterial.material || !markMaterial.quantityPerM3) {
+              console.warn(`  ⚠️ Пропущен материал без данных:`, markMaterial);
+              return;
+            }
+
+            const materialId = markMaterial.material.id;
+            const materialName = markMaterial.material.name;
+            const quantityPerM3 = markMaterial.quantityPerM3;
+            const totalQuantity = quantityPerM3 * quantityM3; // Расход материала = количество на м³ * объем накладной
+
+            console.log(`  ➕ Расход материала ${materialName}: ${quantityPerM3} ${markMaterial.unit}/м³ × ${quantityM3} м³ = ${totalQuantity} ${markMaterial.unit}`);
+
+            const key = `${invoice.warehouseId}_${materialId}`;
+            const current = consumedByWarehouseMaterial.get(key) || 0;
+            consumedByWarehouseMaterial.set(key, current + totalQuantity);
+          });
+        } else {
+          console.warn(`  ⚠️ У марки бетона ${concreteMark.name} нет состава материалов`);
+        }
+      });
+
+      console.log(`✅ Сгруппировано записей расходования: ${consumedByWarehouseMaterial.size}`);
+
+      // Формируем результат
+      const result: any[] = [];
+
+      warehouses.forEach((warehouse) => {
+        materials.forEach((material) => {
+          const balance = balances.find(
+            (b) => b.warehouseId === warehouse.id && b.materialId === material.id
+          );
+
+          const key = `${warehouse.id}_${material.id}`;
+          const consumed = consumedByWarehouseMaterial.get(key) || 0;
+          const currentBalance = balance?.quantity || 0;
+
+          result.push({
+            warehouseId: warehouse.id,
+            warehouseName: warehouse.name,
+            warehouseAddress: warehouse.address,
+            companyName: warehouse.company?.name || null,
+            materialId: material.id,
+            materialName: material.name,
+            materialType: material.type?.name || 'Не указан',
+            materialUnit: material.unit,
+            currentBalance: currentBalance,
+            consumed: consumed,
+            totalReceived: currentBalance + consumed, // Изначально получено = остаток + израсходовано
+          });
+        });
+      });
+
+      console.log(`✅ Сформировано записей: ${result.length}`);
+
+      // Фильтруем только те записи, где есть остаток или было расходование
+      const filteredResult = result.filter(
+        (item) => item.currentBalance > 0 || item.consumed > 0
+      );
+
+      console.log(`✅ После фильтрации записей: ${filteredResult.length}`);
+
+      // Сортируем по складу, затем по типу материала, затем по названию
+      filteredResult.sort((a, b) => {
+        if (a.warehouseName !== b.warehouseName) {
+          return a.warehouseName.localeCompare(b.warehouseName);
+        }
+        if (a.materialType !== b.materialType) {
+          return a.materialType.localeCompare(b.materialType);
+        }
+        return a.materialName.localeCompare(b.materialName);
+      });
+
+      // Общая статистика
+      const totalBalance = filteredResult.reduce((sum, item) => sum + item.currentBalance, 0);
+      const totalConsumed = filteredResult.reduce((sum, item) => sum + item.consumed, 0);
+      const totalReceived = filteredResult.reduce((sum, item) => sum + item.totalReceived, 0);
+
+      const response = {
+        data: filteredResult,
+        summary: {
+          totalWarehouses: warehouses.length,
+          totalMaterials: new Set(filteredResult.map((item) => item.materialId)).size,
+          totalBalance,
+          totalConsumed,
+          totalReceived,
+        },
+        period: {
+          startDate: startDate || null,
+          endDate: endDate || null,
+        },
+      };
+
+      console.log('✅ Ответ сформирован:', {
+        records: filteredResult.length,
+        summary: response.summary,
+      });
+
+      return response;
+    } catch (error) {
+      console.error('❌ Ошибка в getAllMaterialBalances:', error);
+      console.error('Stack trace:', error instanceof Error ? error.stack : 'No stack trace');
+      throw error;
+    }
   }
 }

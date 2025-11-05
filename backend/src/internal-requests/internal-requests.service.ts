@@ -1,12 +1,17 @@
-import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException, BadRequestException, Inject, forwardRef } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { CreateInternalRequestDto } from './dto/create-request.dto';
 import { UpdateInternalRequestDto } from './dto/update-request.dto';
-import { RequestStatus, UserRole } from '@prisma/client';
+import { RequestStatus, UserRole, NotificationType } from '@prisma/client';
+import { NotificationsService } from '../notifications/notifications.service';
 
 @Injectable()
 export class InternalRequestsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    @Inject(forwardRef(() => NotificationsService))
+    private notificationsService: NotificationsService,
+  ) {}
 
   // Генерация номера заявки
   private async generateRequestNumber(): Promise<string> {
@@ -268,7 +273,7 @@ export class InternalRequestsService {
 
     const history = this.addHistory(request, 'ACCOUNTANT_FUNDED', userName);
 
-    return this.prisma.internalRequest.update({
+    const updatedRequest = await this.prisma.internalRequest.update({
       where: { id },
       data: {
         accountantApproved: true,
@@ -281,6 +286,35 @@ export class InternalRequestsService {
         warehouse: true,
       },
     });
+
+    // Создаем уведомление для снабженца о выделении средств
+    try {
+      // Если это заявка связана с заказом, получаем создателя заказа
+      if (updatedRequest.employee?.role === UserRole.SUPPLIER) {
+        await this.notificationsService.createNotification(
+          updatedRequest.employee.id,
+          NotificationType.FUNDS_ALLOCATED,
+          'Средства выделены бухгалтером',
+          `Выделены деньги по заказу №${updatedRequest.id}`,
+          updatedRequest.id,
+          'order',
+        );
+      } else {
+        // Или отправляем всем снабженцам
+        await this.notificationsService.createNotificationsForRoles(
+          [UserRole.SUPPLIER],
+          NotificationType.FUNDS_ALLOCATED,
+          'Средства выделены бухгалтером',
+          `Выделены деньги по заявке №${updatedRequest.id}`,
+          updatedRequest.id,
+          'order',
+        );
+      }
+    } catch (error) {
+      console.error('Ошибка при создании уведомления о выделении средств:', error);
+    }
+
+    return updatedRequest;
   }
 
   // Снабженец отмечает закупку

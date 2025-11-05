@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { DataTable, type Column } from '../components/ui/data-table';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '../components/ui/dialog';
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '../components/ui/alert-dialog';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
@@ -15,21 +14,16 @@ import { PaymentType, OrderStatus, UserRole } from '../types';
 import { useNotifications } from '../hooks/useNotifications';
 import { useApiData } from '../hooks/useApiData';
 import { useAuthStore } from '../stores/authStore';
-import { Check, X, Truck, Trash2, Clock, Edit } from 'lucide-react';
+import { Check, X, Truck, Clock, Edit } from 'lucide-react';
 
 export const OrdersPageNew: React.FC = () => {
   const [modalOpen, setModalOpen] = useState(false);
-  const [confirmOpen, setConfirmOpen] = useState(false);
   const [proposeChangesModalOpen, setProposeChangesModalOpen] = useState(false);
-  const [deletionRequestModalOpen, setDeletionRequestModalOpen] = useState(false);
   const [editingOrder, setEditingOrder] = useState<Order | null>(null);
   const [proposingChangesOrder, setProposingChangesOrder] = useState<Order | null>(null);
-  const [requestingDeletionOrder, setRequestingDeletionOrder] = useState<Order | null>(null);
-  const [deleteId, setDeleteId] = useState<number | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<OrderStatus | 'ALL'>('ALL');
   const [changeReason, setChangeReason] = useState('');
-  const [deletionReason, setDeletionReason] = useState('');
   const [viewMode, setViewMode] = useState<'table' | 'cards'>('table');
   
   const { success, error } = useNotifications();
@@ -37,9 +31,10 @@ export const OrdersPageNew: React.FC = () => {
   
   const { data: orders, loading, refetch } = useApiData<Order>({
     apiCall: () => {
-      // Для водителей используем /orders/my, для остальных - /orders
-      const isDriver = user?.role === 'DRIVER';
-      const apiCall = isDriver ? ordersApi.getMy : ordersApi.getAll;
+      // Для водителей и менеджеров используем /orders/my (только свои заказы)
+      // Для остальных - /orders (с фильтрацией по правам доступа)
+      const useMyOrders = user?.role === 'DRIVER' || user?.role === 'MANAGER' || user?.role === 'OPERATOR';
+      const apiCall = useMyOrders ? ordersApi.getMy : ordersApi.getAll;
       
       return apiCall({ 
         search: searchQuery,
@@ -50,7 +45,7 @@ export const OrdersPageNew: React.FC = () => {
   });
   
   // Проверяем, может ли пользователь управлять справочниками (добавлять новые марки бетона)
-  const canManageReferences = user && [UserRole.ADMIN as string, UserRole.DEVELOPER as string, UserRole.DIRECTOR as string, UserRole.DISPATCHER as string].includes(user.role);
+  const canManageReferences = user && [UserRole.ADMIN as string, UserRole.DEVELOPER as string, UserRole.DIRECTOR as string, UserRole.DISPATCHER as string, UserRole.OPERATOR as string].includes(user.role);
 
   // Загружаем справочники для всех пользователей (для создания заказов)
   const { data: counterparties, refetch: refetchCounterparties } = useApiData<Counterparty>({
@@ -108,38 +103,14 @@ export const OrdersPageNew: React.FC = () => {
 
   const canApproveAsDirector = (row: Order) => user?.role === 'DIRECTOR' && row.status === OrderStatus.PENDING_DIRECTOR;
   const canRejectAsDirector = (row: Order) => user?.role === 'DIRECTOR' && (row.status === OrderStatus.PENDING_DIRECTOR || row.status === OrderStatus.PENDING_DISPATCHER);
-  const canDispatchAsDispatcher = (row: Order) => (user?.role === 'DISPATCHER' || user?.role === 'DIRECTOR') && row.status === OrderStatus.PENDING_DISPATCHER;
+  const canDispatchAsDispatcher = (row: Order) => (user?.role === 'DISPATCHER' || user?.role === 'OPERATOR' || user?.role === 'DIRECTOR') && row.status === OrderStatus.PENDING_DISPATCHER;
   
-  // Проверка: можно ли удалить заказ
-  const canDeleteOrder = (row: Order) => {
-    // Разрешенные статусы для удаления
-    const allowedStatuses: OrderStatus[] = [
-      OrderStatus.DRAFT,
-      OrderStatus.PENDING_DIRECTOR,
-      OrderStatus.WAITING_CREATOR_APPROVAL,
-      OrderStatus.REJECTED,
-      OrderStatus.CANCELED,
-    ];
-    
-    // Проверяем статус
-    if (!allowedStatuses.includes(row.status as OrderStatus)) {
-      return false;
-    }
-    
-    // Проверяем права: создатель (включая водителя), директор, диспетчер или админ
-    const canDelete = 
-      user?.role === 'ADMIN' ||
-      user?.role === 'DEVELOPER' ||
-      row.createdById === user?.id || // Создатель (может быть водитель, менеджер, оператор)
-      user?.role === 'DIRECTOR' ||
-      user?.role === 'DISPATCHER';
-    
-    return canDelete;
-  };
+  // Удаление заказов полностью запрещено - все заказы сохраняются в истории
+  // const canDeleteOrder = (row: Order) => false;
 
   const approveDirector = async (row: Order) => {
     try {
-      await ordersApi.update(row.id, { status: OrderStatus.PENDING_DISPATCHER });
+      await ordersApi.updateStatus(row.id, OrderStatus.APPROVED_BY_DIRECTOR);
       success('Заказ одобрен директором');
       refetch();
     } catch (e: any) {
@@ -149,7 +120,7 @@ export const OrdersPageNew: React.FC = () => {
 
   const rejectOrder = async (row: Order) => {
     try {
-      await ordersApi.update(row.id, { status: OrderStatus.REJECTED });
+      await ordersApi.updateStatus(row.id, OrderStatus.REJECTED);
       success('Заказ отклонён');
       refetch();
     } catch (e: any) {
@@ -159,7 +130,7 @@ export const OrdersPageNew: React.FC = () => {
 
   const dispatchOrder = async (row: Order) => {
     try {
-      await ordersApi.update(row.id, { status: OrderStatus.DISPATCHED });
+      await ordersApi.updateStatus(row.id, OrderStatus.DISPATCHED);
       success('Заказ отправлен');
       refetch();
     } catch (e: any) {
@@ -181,7 +152,88 @@ export const OrdersPageNew: React.FC = () => {
       minWidth: 150,
       render: (value) => value?.name || '-'
     },
-    { id: 'quantityM3', label: 'Количество (м³)', minWidth: 120 },
+    { 
+      id: 'quantityM3', 
+      label: 'Количество (м³)', 
+      minWidth: 180,
+      render: (_value, row) => {
+        // Изначальный объем заказа (при создании) - это quantityM3 заказа
+        // Используем напрямую значение из БД без каких-либо вычислений
+        let initialQuantity = 0;
+        if (typeof row.quantityM3 === 'number') {
+          initialQuantity = row.quantityM3;
+        } else if (row.quantityM3 !== null && row.quantityM3 !== undefined) {
+          const parsed = parseFloat(String(row.quantityM3));
+          initialQuantity = isNaN(parsed) ? 0 : parsed;
+        }
+        
+        
+        // Считаем объем в процессе доставки (IN_TRANSIT, IN_DELIVERY, UNLOADING, ARRIVED, DEPARTED)
+        const inProgressQuantity = row.invoices && Array.isArray(row.invoices)
+          ? row.invoices
+              .filter((inv: any) => inv && ['IN_TRANSIT', 'IN_DELIVERY', 'UNLOADING', 'ARRIVED', 'DEPARTED', 'PENDING'].includes(inv.status))
+              .reduce((sum: number, inv: any) => {
+                const invQuantity = typeof inv.quantityM3 === 'number' ? inv.quantityM3 : parseFloat(String(inv.quantityM3 || 0));
+                return sum + invQuantity;
+              }, 0)
+          : 0;
+        
+        // Считаем доставленный объем по завершенным накладным (только COMPLETED и DELIVERED)
+        const deliveredQuantity = row.invoices && Array.isArray(row.invoices)
+          ? row.invoices
+              .filter((inv: any) => inv && (inv.status === 'COMPLETED' || inv.status === 'DELIVERED'))
+              .reduce((sum: number, inv: any) => {
+                const invQuantity = typeof inv.quantityM3 === 'number' ? inv.quantityM3 : parseFloat(String(inv.quantityM3 || 0));
+                return sum + invQuantity;
+              }, 0)
+          : 0;
+        
+        // Общий объем в работе (в процессе + доставлено)
+        const totalInWorkQuantity = inProgressQuantity + deliveredQuantity;
+        
+        const remainingQuantity = Math.max(0, initialQuantity - totalInWorkQuantity);
+        
+        return (
+          <div className="space-y-1">
+            <div className="text-sm font-medium text-gray-900">
+              Изначальный объем: {initialQuantity.toFixed(1)} м³
+            </div>
+            {inProgressQuantity > 0 && (
+              <div className="text-xs text-gray-600">
+                В процессе: <span className="text-blue-600 font-medium">{inProgressQuantity.toFixed(1)} м³</span>
+              </div>
+            )}
+            <div className="text-xs text-gray-600">
+              Доставлено: <span className="text-green-600 font-medium">{deliveredQuantity.toFixed(1)} м³</span>
+            </div>
+            <div className="text-xs text-gray-600">
+              Осталось: <span className="text-orange-600 font-medium">{remainingQuantity.toFixed(1)} м³</span>
+            </div>
+            {initialQuantity > 0 && (
+              <div className="w-full bg-gray-200 rounded-full h-2 mt-1 relative overflow-hidden">
+                {/* Полоса доставленного (зеленая) */}
+                {deliveredQuantity > 0 && (
+                  <div 
+                    className="bg-green-500 h-2 absolute left-0 transition-all"
+                    style={{ width: `${Math.min(100, (deliveredQuantity / initialQuantity) * 100)}%` }}
+                  />
+                )}
+                {/* Полоса в процессе (синяя, поверх зеленой) */}
+                {inProgressQuantity > 0 && (
+                  <div 
+                    className="bg-blue-500 h-2 absolute transition-all"
+                    style={{ 
+                      left: `${Math.min(100, (deliveredQuantity / initialQuantity) * 100)}%`,
+                      width: `${Math.min(100 - (deliveredQuantity / initialQuantity) * 100, (inProgressQuantity / initialQuantity) * 100)}%` 
+                    }}
+                  />
+                )}
+              </div>
+            )}
+          </div>
+        );
+      }
+    },
     { 
       id: 'paymentType', 
       label: 'Оплата', 
@@ -218,53 +270,63 @@ export const OrdersPageNew: React.FC = () => {
             </div>
           )}
 
-          {/* Запрос на удаление (тройное подтверждение) */}
-          {row.deletionRequestedById && (
-            <div className="bg-red-50 border border-red-200 rounded p-2 text-xs">
-              <p className="font-semibold text-red-800">🗑️ Запрос на удаление</p>
-              <p className="text-red-700 mt-1">{row.deletionReason}</p>
-              {row.deletionRequestedBy && (
-                <p className="text-red-600 text-xs">От: {row.deletionRequestedBy.firstName} {row.deletionRequestedBy.lastName}</p>
-              )}
-              <div className="mt-2 flex gap-2 flex-wrap">
-                <span className={`px-2 py-0.5 rounded text-xs ${row.directorApprovedDeletion ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'}`}>
-                  {row.directorApprovedDeletion ? '✅' : '⏳'} Директор
-                </span>
-                <span className={`px-2 py-0.5 rounded text-xs ${row.dispatcherApprovedDeletion ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'}`}>
-                  {row.dispatcherApprovedDeletion ? '✅' : '⏳'} Диспетчер
-                </span>
-                <span className={`px-2 py-0.5 rounded text-xs ${row.creatorApprovedDeletion ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'}`}>
-                  {row.creatorApprovedDeletion ? '✅' : '⏳'} Создатель
-                </span>
-              </div>
-            </div>
-          )}
+          {/* Удаление заказов полностью запрещено - все заказы сохраняются в истории */}
         </div>
       )
     },
-    { id: 'deliveryDate', label: 'Дата доставки', minWidth: 120 },
+    { 
+      id: 'deliveryDate', 
+      label: 'Дата и время доставки', 
+      minWidth: 180,
+      render: (_value, row) => {
+        const dateStr = row.deliveryDate ? new Date(row.deliveryDate).toLocaleDateString('ru-RU') : '';
+        const timeStr = row.deliveryTime || '';
+        return dateStr && timeStr ? `${dateStr} в ${timeStr}` : dateStr || '-';
+      }
+    },
     { id: 'deliveryAddress', label: 'Адрес доставки', minWidth: 200 },
     {
       id: 'actions' as any,
       label: 'Действия',
       minWidth: 300,
       render: (_v, row) => (
-        <div className="flex gap-2 flex-wrap">
+        <div className="flex gap-1.5 sm:gap-2 flex-wrap">
           {/* Кнопка редактирования - только для создателя и только до принятия */}
           {row.createdById === user?.id && row.status === OrderStatus.PENDING_DIRECTOR && (
-            <Button size="sm" variant="outline" className="px-2" onClick={() => handleEdit(row)}>
-              <Edit className="h-4 w-4 mr-1" /> Изменить
+            <Button 
+              size="sm" 
+              variant="outline" 
+              className="px-2 sm:px-3 text-xs sm:text-sm h-8 sm:h-9 rounded-md border-gray-300 hover:border-gray-400 hover:bg-gray-50" 
+              onClick={() => handleEdit(row)}
+            >
+              <Edit className="h-3.5 w-3.5 sm:h-4 sm:w-4 mr-1.5 sm:mr-2" /> 
+              <span className="hidden sm:inline">Изменить</span>
+              <span className="sm:hidden">Изм.</span>
             </Button>
           )}
           
           {/* Кнопки для директора */}
           {canApproveAsDirector(row) && (
             <>
-              <Button size="sm" className="px-2 bg-gray-800 hover:bg-gray-900" onClick={() => approveDirector(row)}>
-                <Check className="h-4 w-4 mr-1" /> Одобрить
+              <Button 
+                size="sm" 
+                variant="success" 
+                className="px-2 sm:px-3 text-xs sm:text-sm h-8 sm:h-9 rounded-md" 
+                onClick={() => approveDirector(row)}
+              >
+                <Check className="h-3.5 w-3.5 sm:h-4 sm:w-4 mr-1.5 sm:mr-2" /> 
+                <span className="hidden sm:inline">Одобрить</span>
+                <span className="sm:hidden">Ок</span>
               </Button>
-              <Button size="sm" variant="outline" className="px-2" onClick={() => openProposeChangesModal(row)}>
-                <Clock className="h-4 w-4 mr-1" /> Предложить изменения
+              <Button 
+                size="sm" 
+                variant="outline" 
+                className="px-2 sm:px-3 text-xs sm:text-sm h-8 sm:h-9 rounded-md border-blue-300 hover:border-blue-400 hover:bg-blue-50 text-blue-700 hover:text-blue-800" 
+                onClick={() => openProposeChangesModal(row)}
+              >
+                <Clock className="h-3.5 w-3.5 sm:h-4 sm:w-4 mr-1.5 sm:mr-2" /> 
+                <span className="hidden sm:inline">Предложить изменения</span>
+                <span className="sm:hidden">Предложить</span>
               </Button>
             </>
           )}
@@ -272,59 +334,56 @@ export const OrdersPageNew: React.FC = () => {
           {/* Кнопки для создателя заказа (ожидает подтверждения изменений) */}
           {row.status === OrderStatus.WAITING_CREATOR_APPROVAL && row.createdById === user?.id && (
             <>
-              <Button size="sm" className="px-2 bg-gray-800 hover:bg-gray-900" onClick={() => handleAcceptChanges(row.id)}>
-                <Check className="h-4 w-4 mr-1" /> Принять изменения
+              <Button 
+                size="sm" 
+                variant="success" 
+                className="px-2 sm:px-3 text-xs sm:text-sm h-8 sm:h-9 rounded-md" 
+                onClick={() => handleAcceptChanges(row.id)}
+              >
+                <Check className="h-3.5 w-3.5 sm:h-4 sm:w-4 mr-1.5 sm:mr-2" /> 
+                <span className="hidden sm:inline">Принять изменения</span>
+                <span className="sm:hidden">Принять</span>
               </Button>
-              <Button size="sm" variant="destructive" className="px-2" onClick={() => handleRejectChanges(row.id)}>
-                <X className="h-4 w-4 mr-1" /> Отменить заказ
+              <Button 
+                size="sm" 
+                variant="destructive" 
+                className="px-2 sm:px-3 text-xs sm:text-sm h-8 sm:h-9 rounded-md" 
+                onClick={() => handleRejectChanges(row.id)}
+              >
+                <X className="h-3.5 w-3.5 sm:h-4 sm:w-4 mr-1.5 sm:mr-2" /> 
+                <span className="hidden sm:inline">Отменить заказ</span>
+                <span className="sm:hidden">Отменить</span>
               </Button>
             </>
           )}
           {canRejectAsDirector(row) && (
-            <Button size="sm" variant="destructive" className="px-2" onClick={() => rejectOrder(row)}>
-              <X className="h-4 w-4 mr-1" /> Отклонить
+            <Button 
+              size="sm" 
+              variant="destructive" 
+              className="px-2 sm:px-3 text-xs sm:text-sm h-8 sm:h-9 rounded-md" 
+              onClick={() => rejectOrder(row)}
+            >
+              <X className="h-3.5 w-3.5 sm:h-4 sm:w-4 mr-1.5 sm:mr-2" /> 
+              <span className="hidden sm:inline">Отклонить</span>
+              <span className="sm:hidden">Откл.</span>
             </Button>
           )}
           
           {/* Кнопка для диспетчера */}
           {canDispatchAsDispatcher(row) && (
-            <Button size="sm" className="px-2 bg-gray-800 hover:bg-gray-900" onClick={() => dispatchOrder(row)}>
-              <Truck className="h-4 w-4 mr-1" /> Отправить
+            <Button 
+              size="sm" 
+              variant="default" 
+              className="px-2 sm:px-3 text-xs sm:text-sm h-8 sm:h-9 rounded-md" 
+              onClick={() => dispatchOrder(row)}
+            >
+              <Truck className="h-3.5 w-3.5 sm:h-4 sm:w-4 mr-1.5 sm:mr-2" /> 
+              <span className="hidden sm:inline">Отправить</span>
+              <span className="sm:hidden">Отпр.</span>
             </Button>
           )}
 
-          {/* Кнопки для подтверждения удаления (тройное подтверждение) */}
-          {row.deletionRequestedById && (
-            <>
-              {/* Кнопка подтверждения для директора */}
-              {user?.role === 'DIRECTOR' && !row.directorApprovedDeletion && (
-                <Button size="sm" className="px-2 bg-gray-800 hover:bg-gray-900" onClick={() => handleApproveDeletion(row.id)}>
-                  <Check className="h-4 w-4 mr-1" /> Подтвердить (Директор)
-                </Button>
-              )}
-              
-              {/* Кнопка подтверждения для диспетчера */}
-              {user?.role === 'DISPATCHER' && !row.dispatcherApprovedDeletion && (
-                <Button size="sm" className="px-2 bg-gray-800 hover:bg-gray-900" onClick={() => handleApproveDeletion(row.id)}>
-                  <Check className="h-4 w-4 mr-1" /> Подтвердить (Диспетчер)
-                </Button>
-              )}
-              
-              {/* Кнопка подтверждения для создателя */}
-              {row.createdById === user?.id && !row.creatorApprovedDeletion && (
-                <Button size="sm" className="px-2 bg-gray-800 hover:bg-gray-900" onClick={() => handleApproveDeletion(row.id)}>
-                  <Check className="h-4 w-4 mr-1" /> Подтвердить (Я создал)
-                </Button>
-              )}
-              
-              {/* Кнопка отклонения - доступна всем трем сторонам */}
-              {(user?.role === 'DIRECTOR' || user?.role === 'DISPATCHER' || row.createdById === user?.id) && (
-                <Button size="sm" variant="outline" className="px-2" onClick={() => handleRejectDeletion(row.id)}>
-                  <X className="h-4 w-4 mr-1" /> Отклонить запрос
-                </Button>
-              )}
-            </>
-          )}
+          {/* Удаление заказов полностью запрещено - все заказы сохраняются в истории */}
         </div>
       )
     },
@@ -477,77 +536,11 @@ export const OrdersPageNew: React.FC = () => {
     setModalOpen(true);
   };
 
-  const handleDelete = async () => {
-    if (!deleteId) return;
-
-    try {
-      await ordersApi.delete(deleteId);
-      success('Заказ удален');
-      setConfirmOpen(false);
-      setDeleteId(null);
-      refetch();
-    } catch (err: any) {
-      // Если ошибка говорит что нужен запрос на удаление
-      if (err.response?.data?.message?.includes('Используйте запрос на удаление')) {
-        setConfirmOpen(false);
-        const orderToDelete = orders.find(o => o.id === deleteId);
-        if (orderToDelete) {
-          setRequestingDeletionOrder(orderToDelete);
-          setDeletionRequestModalOpen(true);
-        }
-      } else {
-        error(err.response?.data?.message || 'Ошибка при удалении');
-      }
-    }
-  };
-
-
-  // Отправить запрос на удаление
-  const handleRequestDeletion = async () => {
-    if (!requestingDeletionOrder || !deletionReason.trim()) {
-      error('Укажите причину удаления');
-      return;
-    }
-
-    try {
-      await ordersApi.requestDeletion(requestingDeletionOrder.id, deletionReason);
-      success('Запрос на удаление отправлен директору');
-      setDeletionRequestModalOpen(false);
-      setRequestingDeletionOrder(null);
-      setDeletionReason('');
-      refetch();
-    } catch (err: any) {
-      error(err.response?.data?.message || 'Ошибка при отправке запроса');
-    }
-  };
-
-  // Подтвердить удаление (директор/диспетчер/создатель)
-  const handleApproveDeletion = async (orderId: number) => {
-    try {
-      const response = await ordersApi.approveDeletion(orderId);
-      
-      if (response.data.deleted) {
-        success('Все три стороны подтвердили. Заказ удален!');
-      } else {
-        success('Ваше подтверждение принято. Ожидаем остальных.');
-      }
-      
-      refetch();
-    } catch (err: any) {
-      error(err.response?.data?.message || 'Ошибка при подтверждении');
-    }
-  };
-
-  // Отклонить запрос на удаление
-  const handleRejectDeletion = async (orderId: number) => {
-    try {
-      await ordersApi.rejectDeletion(orderId);
-      success('Запрос на удаление отклонен');
-      refetch();
-    } catch (err: any) {
-      error(err.response?.data?.message || 'Ошибка');
-    }
-  };
+  // Удаление заказов полностью запрещено - все заказы сохраняются в истории
+  // const handleDelete = async () => { ... }
+  // const handleRequestDeletion = async () => { ... }
+  // const handleApproveDeletion = async (orderId: number) => { ... }
+  // const handleRejectDeletion = async (orderId: number) => { ... }
 
   // Открыть модальное окно для предложения изменений
   const openProposeChangesModal = (order: Order) => {
@@ -581,35 +574,58 @@ export const OrdersPageNew: React.FC = () => {
     setProposeChangesModalOpen(true);
   };
 
-  // Предложить изменения (директор)
+  // Предложить изменения (директор) - может менять только дату и время
   const handleProposeChanges = async () => {
-    if (!proposingChangesOrder) return;
+    if (!proposingChangesOrder) {
+      error('Ошибка: заказ не выбран');
+      return;
+    }
+
+    // Валидация обязательных полей для предложения изменений (только дата, время и причина)
+    if (!formData.deliveryDate || !formData.deliveryDate.trim()) {
+      error('Укажите новую дату доставки');
+      return;
+    }
+
+    if (!formData.deliveryTime || !formData.deliveryTime.trim()) {
+      error('Укажите новое время доставки');
+      return;
+    }
 
     if (!changeReason.trim()) {
       error('Укажите причину изменения');
       return;
     }
 
-    if (!validateForm()) return;
+    // Директор может менять только дату и время, адрес и координаты остаются прежними
+    const requestData = {
+      deliveryDate: formData.deliveryDate,
+      deliveryTime: formData.deliveryTime,
+      deliveryAddress: proposingChangesOrder.deliveryAddress || '', // Оставляем прежний адрес
+      coordinates: proposingChangesOrder.coordinates || undefined, // Оставляем прежние координаты
+      notes: formData.notes || undefined,
+      changeReason: changeReason,
+    };
 
     try {
-      await ordersApi.proposeChanges(proposingChangesOrder.id, {
-        deliveryDate: formData.deliveryDate,
-        deliveryTime: formData.deliveryTime,
-        deliveryAddress: formData.deliveryAddress,
-        coordinates: formData.coordinates,
-        notes: formData.notes,
-        changeReason: changeReason,
-      });
+      await ordersApi.proposeChanges(proposingChangesOrder.id, requestData);
       
+      // Успешно отправлено - закрываем модальное окно и показываем сообщение
       success('Изменения отправлены создателю заказа на подтверждение');
+      
+      // Закрываем модальное окно и очищаем состояние
       setProposeChangesModalOpen(false);
       setProposingChangesOrder(null);
       setChangeReason('');
       resetForm();
+      
+      // Обновляем список заказов
       refetch();
     } catch (err: any) {
-      error(err.response?.data?.message || 'Ошибка при отправке изменений');
+      console.error('Ошибка при отправке изменений:', err);
+      const errorMessage = err.response?.data?.message || err.message || 'Ошибка при отправке изменений';
+      error(errorMessage);
+      // Не закрываем модальное окно при ошибке, чтобы пользователь мог исправить данные
     }
   };
 
@@ -695,7 +711,7 @@ export const OrdersPageNew: React.FC = () => {
         <h1 className="text-2xl font-bold">Заказы</h1>
         <div className="flex gap-2 w-full sm:w-auto">
           <ViewToggle view={viewMode} onViewChange={setViewMode} />
-          <Button onClick={handleAdd} className="bg-gray-800 hover:bg-gray-900 flex-1 sm:flex-initial">
+          <Button onClick={handleAdd} className="bg-gray-800 hover:bg-gray-900 flex-1 sm:flex-initial rounded-md shadow-md hover:shadow-lg transition-all h-10 px-4">
             <span className="sm:inline">Добавить</span>
           </Button>
         </div>
@@ -732,12 +748,16 @@ export const OrdersPageNew: React.FC = () => {
       </div>
 
       {/* Быстрые фильтры для ролей */}
-      <div className="flex gap-2 flex-wrap">
+      <div className="flex gap-2 flex-wrap mb-4">
         <Button
           variant={statusFilter === 'ALL' ? 'default' : 'outline'}
           size="sm"
           onClick={() => setStatusFilter('ALL')}
-          className="text-xs"
+          className={`text-xs h-8 rounded-md transition-all ${
+            statusFilter === 'ALL' 
+              ? 'bg-gray-800 text-white shadow-md' 
+              : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50 hover:border-gray-400'
+          }`}
         >
           📋 Все ({orders.length})
         </Button>
@@ -747,7 +767,11 @@ export const OrdersPageNew: React.FC = () => {
             variant={statusFilter === OrderStatus.PENDING_DIRECTOR ? 'default' : 'outline'}
             size="sm"
             onClick={() => setStatusFilter(OrderStatus.PENDING_DIRECTOR)}
-            className="text-xs"
+            className={`text-xs h-8 rounded-md transition-all ${
+              statusFilter === OrderStatus.PENDING_DIRECTOR 
+                ? 'bg-amber-600 text-white shadow-md hover:bg-amber-700' 
+                : 'bg-white text-gray-700 border-gray-300 hover:bg-amber-50 hover:border-amber-300'
+            }`}
           >
             ⏳ Ждут моего решения ({orders.filter(o => o.status === OrderStatus.PENDING_DIRECTOR).length})
           </Button>
@@ -758,17 +782,25 @@ export const OrdersPageNew: React.FC = () => {
           variant={statusFilter === OrderStatus.WAITING_CREATOR_APPROVAL ? 'default' : 'outline'}
           size="sm"
           onClick={() => setStatusFilter(OrderStatus.WAITING_CREATOR_APPROVAL)}
-          className="text-xs"
+          className={`text-xs h-8 rounded-md transition-all ${
+            statusFilter === OrderStatus.WAITING_CREATOR_APPROVAL 
+              ? 'bg-blue-600 text-white shadow-md hover:bg-blue-700' 
+              : 'bg-white text-gray-700 border-gray-300 hover:bg-blue-50 hover:border-blue-300'
+          }`}
         >
           🔄 Требуют моего ответа ({orders.filter(o => o.status === OrderStatus.WAITING_CREATOR_APPROVAL && o.createdById === user?.id).length})
         </Button>
           
-          {(user?.role === 'DISPATCHER' || user?.role === 'DIRECTOR' || user?.role === 'ADMIN' || user?.role === 'DEVELOPER') && (
+          {(user?.role === 'DISPATCHER' || user?.role === 'OPERATOR' || user?.role === 'DIRECTOR' || user?.role === 'ADMIN' || user?.role === 'DEVELOPER') && (
             <Button
               variant={statusFilter === OrderStatus.PENDING_DISPATCHER ? 'default' : 'outline'}
               size="sm"
               onClick={() => setStatusFilter(OrderStatus.PENDING_DISPATCHER)}
-              className="text-xs"
+              className={`text-xs h-8 rounded-md transition-all ${
+                statusFilter === OrderStatus.PENDING_DISPATCHER 
+                  ? 'bg-purple-600 text-white shadow-md hover:bg-purple-700' 
+                  : 'bg-white text-gray-700 border-gray-300 hover:bg-purple-50 hover:border-purple-300'
+              }`}
             >
               📋 Готовы к отправке ({orders.filter(o => o.status === OrderStatus.PENDING_DISPATCHER).length})
             </Button>
@@ -778,7 +810,11 @@ export const OrdersPageNew: React.FC = () => {
             variant={statusFilter === OrderStatus.DISPATCHED ? 'default' : 'outline'}
             size="sm"
             onClick={() => setStatusFilter(OrderStatus.DISPATCHED)}
-            className="text-xs"
+            className={`text-xs h-8 rounded-md transition-all ${
+              statusFilter === OrderStatus.DISPATCHED 
+                ? 'bg-indigo-600 text-white shadow-md hover:bg-indigo-700' 
+                : 'bg-white text-gray-700 border-gray-300 hover:bg-indigo-50 hover:border-indigo-300'
+            }`}
           >
             🚛 Отправлены ({orders.filter(o => o.status === OrderStatus.DISPATCHED).length})
           </Button>
@@ -787,7 +823,11 @@ export const OrdersPageNew: React.FC = () => {
             variant={statusFilter === OrderStatus.COMPLETED ? 'default' : 'outline'}
             size="sm"
             onClick={() => setStatusFilter(OrderStatus.COMPLETED)}
-            className="text-xs"
+            className={`text-xs h-8 rounded-md transition-all ${
+              statusFilter === OrderStatus.COMPLETED 
+                ? 'bg-green-600 text-white shadow-md hover:bg-green-700' 
+                : 'bg-white text-gray-700 border-gray-300 hover:bg-green-50 hover:border-green-300'
+            }`}
           >
             ✔️ Завершённые ({orders.filter(o => o.status === OrderStatus.COMPLETED).length})
           </Button>
@@ -800,13 +840,6 @@ export const OrdersPageNew: React.FC = () => {
           columns={columns}
           loading={loading}
           onEdit={handleEdit}
-          onDelete={(order) => {
-            if (canDeleteOrder(order)) {
-              setDeleteId(order.id);
-              setConfirmOpen(true);
-            }
-          }}
-          canDelete={canDeleteOrder}
           searchable={false}
         />
       ) : (
@@ -814,33 +847,168 @@ export const OrdersPageNew: React.FC = () => {
           {loading ? (
             <p className="col-span-full text-center py-8 text-gray-500">Загрузка...</p>
           ) : orders && orders.length > 0 ? (
-            orders.map((order) => (
-              <EntityCard
-                key={order.id}
-                title={`Заказ №${order.orderNumber}`}
-                subtitle={order.customer?.name}
-                badge={{
-                  label: statusLabels[order.status] || order.status,
-                  variant: order.status === OrderStatus.COMPLETED ? 'default' : 
-                           order.status === OrderStatus.PENDING_DIRECTOR || order.status === OrderStatus.PENDING_DISPATCHER ? 'secondary' : 
-                           order.status === OrderStatus.REJECTED || order.status === OrderStatus.CANCELED ? 'destructive' : 'outline'
-                }}
-                fields={[
-                  { label: 'Марка бетона', value: order.concreteMark?.name },
-                  { label: 'Количество', value: `${order.quantityM3} м³` },
-                  { label: 'Дата доставки', value: new Date(order.deliveryDate).toLocaleDateString('ru-RU') },
-                  { label: 'Адрес', value: order.deliveryAddress, fullWidth: true }
-                ]}
-                onEdit={() => handleEdit(order)}
-                onDelete={() => {
-                  if (canDeleteOrder(order)) {
-                    setDeleteId(order.id);
-                    setConfirmOpen(true);
-                  }
-                }}
-                canDelete={canDeleteOrder(order)}
-              />
-            ))
+            orders.map((order) => {
+              // Собираем все кнопки действий для этой карточки
+              const actionButtons: React.ReactNode[] = [];
+              
+              // Кнопка редактирования
+              if (order.createdById === user?.id && order.status === OrderStatus.PENDING_DIRECTOR) {
+                actionButtons.push(
+                  <Button key="edit" size="sm" variant="outline" className="text-xs h-8 rounded-md border-gray-300 hover:border-gray-400" onClick={() => handleEdit(order)}>
+                    <Edit className="h-3.5 w-3.5 mr-1.5" /> Изменить
+                  </Button>
+                );
+              }
+              
+              // Кнопки для директора
+              if (canApproveAsDirector(order)) {
+                actionButtons.push(
+                  <Button key="approve" size="sm" variant="success" className="text-xs h-8 rounded-md" onClick={() => approveDirector(order)}>
+                    <Check className="h-3.5 w-3.5 mr-1.5" /> Одобрить
+                  </Button>,
+                  <Button key="propose" size="sm" variant="outline" className="text-xs h-8 rounded-md border-blue-300 hover:border-blue-400 hover:bg-blue-50 text-blue-700" onClick={() => openProposeChangesModal(order)}>
+                    <Clock className="h-3.5 w-3.5 mr-1.5" /> Предложить изменения
+                  </Button>
+                );
+              }
+              
+              // Кнопки для создателя (ожидает подтверждения изменений)
+              if (order.status === OrderStatus.WAITING_CREATOR_APPROVAL && order.createdById === user?.id) {
+                actionButtons.push(
+                  <Button key="accept" size="sm" variant="success" className="text-xs h-8 rounded-md" onClick={() => handleAcceptChanges(order.id)}>
+                    <Check className="h-3.5 w-3.5 mr-1.5" /> Принять изменения
+                  </Button>,
+                  <Button key="reject" size="sm" variant="destructive" className="text-xs h-8 rounded-md" onClick={() => handleRejectChanges(order.id)}>
+                    <X className="h-3.5 w-3.5 mr-1.5" /> Отменить заказ
+                  </Button>
+                );
+              }
+              
+              // Кнопка отклонения для директора
+              if (canRejectAsDirector(order)) {
+                actionButtons.push(
+                  <Button key="reject-director" size="sm" variant="destructive" className="text-xs h-8 rounded-md" onClick={() => rejectOrder(order)}>
+                    <X className="h-3.5 w-3.5 mr-1.5" /> Отклонить
+                  </Button>
+                );
+              }
+              
+              // Кнопка для диспетчера
+              if (canDispatchAsDispatcher(order)) {
+                actionButtons.push(
+                  <Button key="dispatch" size="sm" variant="default" className="text-xs h-8 rounded-md" onClick={() => dispatchOrder(order)}>
+                    <Truck className="h-3.5 w-3.5 mr-1.5" /> Отправить
+                  </Button>
+                );
+              }
+              
+              return (
+                <div key={order.id} className="bg-white border border-gray-200 rounded-lg overflow-hidden">
+                  <EntityCard
+                    title={`Заказ №${order.orderNumber}`}
+                    subtitle={order.customer?.name}
+                    badge={{
+                      label: statusLabels[order.status] || order.status,
+                      variant: order.status === OrderStatus.COMPLETED ? 'default' : 
+                               order.status === OrderStatus.PENDING_DIRECTOR || order.status === OrderStatus.PENDING_DISPATCHER ? 'secondary' : 
+                               order.status === OrderStatus.REJECTED || order.status === OrderStatus.CANCELED ? 'destructive' : 'outline'
+                    }}
+                    fields={[
+                      { label: 'Марка бетона', value: order.concreteMark?.name },
+                      { 
+                        label: 'Количество', 
+                        value: (() => {
+                          // Изначальный объем заказа (при создании) - это quantityM3 заказа
+                          // Используем напрямую значение из БД без каких-либо вычислений
+                          let initialQuantity = 0;
+                          if (typeof order.quantityM3 === 'number') {
+                            initialQuantity = order.quantityM3;
+                          } else if (order.quantityM3 !== null && order.quantityM3 !== undefined) {
+                            const parsed = parseFloat(String(order.quantityM3));
+                            initialQuantity = isNaN(parsed) ? 0 : parsed;
+                          }
+                          
+                          
+                          // Считаем объем в процессе доставки (IN_TRANSIT, IN_DELIVERY, UNLOADING, ARRIVED, DEPARTED)
+                          const inProgressQuantity = order.invoices && Array.isArray(order.invoices)
+                            ? order.invoices
+                                .filter((inv: any) => inv && ['IN_TRANSIT', 'IN_DELIVERY', 'UNLOADING', 'ARRIVED', 'DEPARTED', 'PENDING'].includes(inv.status))
+                                .reduce((sum: number, inv: any) => {
+                                  const invQuantity = typeof inv.quantityM3 === 'number' ? inv.quantityM3 : parseFloat(String(inv.quantityM3 || 0));
+                                  return sum + invQuantity;
+                                }, 0)
+                            : 0;
+                          
+                          // Считаем доставленный объем по завершенным накладным (только COMPLETED и DELIVERED)
+                          const deliveredQuantity = order.invoices && Array.isArray(order.invoices)
+                            ? order.invoices
+                                .filter((inv: any) => inv && (inv.status === 'COMPLETED' || inv.status === 'DELIVERED'))
+                                .reduce((sum: number, inv: any) => {
+                                  const invQuantity = typeof inv.quantityM3 === 'number' ? inv.quantityM3 : parseFloat(String(inv.quantityM3 || 0));
+                                  return sum + invQuantity;
+                                }, 0)
+                            : 0;
+                          
+                          // Общий объем в работе (в процессе + доставлено)
+                          const totalInWorkQuantity = inProgressQuantity + deliveredQuantity;
+                          
+                          const remainingQuantity = Math.max(0, initialQuantity - totalInWorkQuantity);
+                          
+                          return (
+                            <div className="space-y-1">
+                              <div className="text-sm font-medium">
+                                Изначальный объем: {initialQuantity.toFixed(1)} м³
+                              </div>
+                              {inProgressQuantity > 0 && (
+                                <div className="text-xs text-gray-600">
+                                  В процессе: <span className="text-blue-600 font-medium">{inProgressQuantity.toFixed(1)} м³</span>
+                                </div>
+                              )}
+                              <div className="text-xs text-gray-600">
+                                Доставлено: <span className="text-green-600 font-medium">{deliveredQuantity.toFixed(1)} м³</span>
+                              </div>
+                              <div className="text-xs text-gray-600">
+                                Осталось: <span className="text-orange-600 font-medium">{remainingQuantity.toFixed(1)} м³</span>
+                              </div>
+                              {initialQuantity > 0 && (
+                                <div className="w-full bg-gray-200 rounded-full h-2 mt-1 relative overflow-hidden">
+                                  {/* Полоса доставленного (зеленая) */}
+                                  {deliveredQuantity > 0 && (
+                                    <div 
+                                      className="bg-green-500 h-2 absolute left-0 transition-all"
+                                      style={{ width: `${Math.min(100, (deliveredQuantity / initialQuantity) * 100)}%` }}
+                                    />
+                                  )}
+                                  {/* Полоса в процессе (синяя, поверх зеленой) */}
+                                  {inProgressQuantity > 0 && (
+                                    <div 
+                                      className="bg-blue-500 h-2 absolute transition-all"
+                                      style={{ 
+                                        left: `${Math.min(100, (deliveredQuantity / initialQuantity) * 100)}%`,
+                                        width: `${Math.min(100 - (deliveredQuantity / initialQuantity) * 100, (inProgressQuantity / initialQuantity) * 100)}%` 
+                                      }}
+                                    />
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()
+                      },
+                      { label: 'Дата и время доставки', value: `${new Date(order.deliveryDate).toLocaleDateString('ru-RU')} ${order.deliveryTime ? `в ${order.deliveryTime}` : ''}`.trim() },
+                      { label: 'Адрес', value: order.deliveryAddress, fullWidth: true }
+                    ]}
+                    onEdit={() => handleEdit(order)}
+                  />
+                  {/* Дополнительные кнопки действий */}
+                  {actionButtons.length > 0 && (
+                    <div className="flex flex-wrap gap-2 p-3 pt-0 border-t border-gray-200">
+                      {actionButtons}
+                    </div>
+                  )}
+                </div>
+              );
+            })
           ) : (
             <p className="col-span-full text-center py-8 text-gray-500">Нет данных</p>
           )}
@@ -1170,12 +1338,21 @@ export const OrdersPageNew: React.FC = () => {
       </Dialog>
 
       {/* Диалог для предложения изменений (директор) */}
-      <Dialog open={proposeChangesModalOpen} onOpenChange={setProposeChangesModalOpen}>
+      <Dialog 
+        open={proposeChangesModalOpen} 
+        onOpenChange={(open) => {
+          if (!open) {
+            setProposeChangesModalOpen(false);
+            setProposingChangesOrder(null);
+            setChangeReason('');
+          }
+        }}
+      >
         <DialogContent className="max-w-2xl">
           <DialogHeader>
-            <DialogTitle>Предложить изменения времени и адреса</DialogTitle>
+            <DialogTitle>Предложить изменение времени доставки</DialogTitle>
             <DialogDescription>
-              Укажите новые параметры доставки и причину изменения. Создатель заказа должен будет подтвердить или отменить заказ.
+              Укажите новую дату и время доставки, а также причину изменения. Адрес и координаты изменить нельзя. Создатель заказа должен будет подтвердить или отменить предложение.
             </DialogDescription>
           </DialogHeader>
 
@@ -1209,131 +1386,79 @@ export const OrdersPageNew: React.FC = () => {
                   />
                 </div>
 
+                {/* Адрес и координаты - только для просмотра (директор не может их изменять) */}
                 <div className="col-span-2">
-                  <Label htmlFor="newDeliveryAddress">Новый адрес доставки *</Label>
+                  <Label htmlFor="deliveryAddress">Адрес доставки</Label>
                   <Input
-                    id="newDeliveryAddress"
-                    value={formData.deliveryAddress}
-                    onChange={(e) => setFormData({ ...formData, deliveryAddress: e.target.value })}
-                    placeholder="Введите адрес доставки"
+                    id="deliveryAddress"
+                    value={proposingChangesOrder.deliveryAddress}
+                    disabled
+                    className="bg-gray-100 cursor-not-allowed"
                   />
+                  <p className="text-xs text-gray-500 mt-1">Адрес не может быть изменен</p>
                 </div>
 
-                <div className="col-span-2">
-                  <Label htmlFor="coordinates">Координаты</Label>
-                  <Input
-                    id="coordinates"
-                    value={formData.coordinates}
-                    onChange={(e) => setFormData({ ...formData, coordinates: e.target.value })}
-                    placeholder="Широта, Долгота"
-                  />
-                </div>
+                {proposingChangesOrder.coordinates && (
+                  <div className="col-span-2">
+                    <Label htmlFor="coordinates">Координаты</Label>
+                    <Input
+                      id="coordinates"
+                      value={proposingChangesOrder.coordinates}
+                      disabled
+                      className="bg-gray-100 cursor-not-allowed"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">Координаты не могут быть изменены</p>
+                  </div>
+                )}
 
                 <div className="col-span-2">
-                  <Label htmlFor="changeReason">Причина изменения *</Label>
+                  <Label htmlFor="changeReason" className="text-gray-900 font-semibold">
+                    Причина изменения <span className="text-red-500">*</span>
+                  </Label>
                   <textarea
                     id="changeReason"
                     value={changeReason}
                     onChange={(e) => setChangeReason(e.target.value)}
-                    className="w-full min-h-[100px] p-2 border rounded-md"
-                    placeholder="Укажите причину изменения времени или адреса доставки"
+                    className={`w-full min-h-[100px] p-2 border rounded-md focus:outline-none focus:ring-2 ${
+                      !changeReason.trim() 
+                        ? 'border-red-300 focus:border-red-500 focus:ring-red-200' 
+                        : 'border-gray-300 focus:border-gray-500 focus:ring-gray-200'
+                    }`}
+                    placeholder="Укажите причину изменения времени доставки (обязательно)"
                     required
                   />
+                  {!changeReason.trim() && (
+                    <p className="text-xs text-red-500 mt-1">⚠️ Это поле обязательно для заполнения</p>
+                  )}
                 </div>
               </div>
             </div>
           )}
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => {
-              setProposeChangesModalOpen(false);
-              setProposingChangesOrder(null);
-              setChangeReason('');
-            }}>
+            <Button 
+              variant="outline" 
+              type="button"
+              onClick={() => {
+                setProposeChangesModalOpen(false);
+                setProposingChangesOrder(null);
+                setChangeReason('');
+              }}
+            >
               Отмена
             </Button>
-            <Button onClick={handleProposeChanges} className="bg-gray-800 hover:bg-gray-900">
+            <Button 
+              type="button"
+              onClick={handleProposeChanges}
+              className="bg-gray-800 hover:bg-gray-900"
+            >
               Отправить предложение
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Модальное окно для запроса на удаление */}
-      <Dialog open={deletionRequestModalOpen} onOpenChange={setDeletionRequestModalOpen}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>Запрос на удаление заказа</DialogTitle>
-            <DialogDescription>
-              Этот заказ уже принят в работу. Для удаления необходимо указать причину. Запрос будет отправлен директору на подтверждение.
-            </DialogDescription>
-          </DialogHeader>
-
-          {requestingDeletionOrder && (
-            <div className="space-y-4">
-              <div className="bg-gray-100 p-4 rounded-lg">
-                <h3 className="font-semibold mb-2">Информация о заказе:</h3>
-                <p className="text-sm">📋 Номер: {requestingDeletionOrder.orderNumber}</p>
-                <p className="text-sm">🏢 Заказчик: {requestingDeletionOrder.customer?.name}</p>
-                <p className="text-sm">🚚 Бетон: {requestingDeletionOrder.concreteMark?.name}</p>
-                <p className="text-sm">📦 Количество: {requestingDeletionOrder.quantityM3} м³</p>
-                <p className="text-sm">📅 Доставка: {new Date(requestingDeletionOrder.deliveryDate).toLocaleDateString()} в {requestingDeletionOrder.deliveryTime}</p>
-              </div>
-
-              <div>
-                <Label htmlFor="deletionReason">Причина удаления *</Label>
-                <textarea
-                  id="deletionReason"
-                  value={deletionReason}
-                  onChange={(e) => setDeletionReason(e.target.value)}
-                  className="w-full min-h-[100px] p-2 border rounded-md"
-                  placeholder="Укажите причину, по которой необходимо удалить этот заказ"
-                  required
-                />
-              </div>
-
-              <div className="bg-amber-50 border border-amber-200 rounded p-3 text-sm">
-                <p className="text-amber-800">⚠️ Обратите внимание:</p>
-                <ul className="list-disc list-inside text-amber-700 mt-1 space-y-1">
-                  <li>Запрос будет отправлен директору</li>
-                  <li>Директор может подтвердить или отклонить удаление</li>
-                  <li>До решения директора заказ останется в системе</li>
-                </ul>
-              </div>
-            </div>
-          )}
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => {
-              setDeletionRequestModalOpen(false);
-              setRequestingDeletionOrder(null);
-              setDeletionReason('');
-            }}>
-              Отмена
-            </Button>
-            <Button onClick={handleRequestDeletion} className="bg-gray-800 hover:bg-gray-900">
-              Отправить запрос
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Подтвердите удаление</AlertDialogTitle>
-            <AlertDialogDescription>
-              Вы уверены, что хотите удалить этот заказ? Это действие нельзя отменить.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Отмена</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDelete} className="bg-gray-800 hover:bg-gray-900">
-              Удалить
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {/* Удаление заказов полностью запрещено - все заказы сохраняются в истории */}
     </div>
   );
 };

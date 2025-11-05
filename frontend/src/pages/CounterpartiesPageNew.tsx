@@ -14,9 +14,12 @@ import { CounterpartyKind, CounterpartyType, UserRole } from '../types';
 import { useNotifications } from '../hooks/useNotifications';
 import { useApiData } from '../hooks/useApiData';
 import { useAuthStore } from '../stores/authStore';
+import { useNavigate } from 'react-router-dom';
+import { FileText } from 'lucide-react';
 
 export const CounterpartiesPageNew: React.FC = () => {
   const { user } = useAuthStore();
+  const navigate = useNavigate();
   const [modalOpen, setModalOpen] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [editingCounterparty, setEditingCounterparty] = useState<Counterparty | null>(null);
@@ -25,12 +28,16 @@ export const CounterpartiesPageNew: React.FC = () => {
   const [viewMode, setViewMode] = useState<'table' | 'cards'>('table');
   
   const { success, error } = useNotifications();
+
+  const handleViewReport = (counterparty: Counterparty) => {
+    navigate(`/reports/counterparty/${counterparty.id}`);
+  };
   
   // Проверка прав на редактирование/удаление
   const canEdit = () => {
     if (!user) return false;
     // Директор, Диспетчер, Бухгалтер, Админ и Разработчик могут редактировать всех
-    const canEditAll = [UserRole.DIRECTOR as string, UserRole.DISPATCHER as string, UserRole.ACCOUNTANT as string, UserRole.ADMIN as string, UserRole.DEVELOPER as string].includes(user.role);
+    const canEditAll = [UserRole.DIRECTOR as string, UserRole.DISPATCHER as string, UserRole.OPERATOR as string, UserRole.ACCOUNTANT as string, UserRole.ADMIN as string, UserRole.DEVELOPER as string].includes(user.role);
     if (canEditAll) {
       return true;
     }
@@ -48,7 +55,7 @@ export const CounterpartiesPageNew: React.FC = () => {
     }
     
     // Директор, Диспетчер и Бухгалтер могут удалять всех (кого видят)
-    const isPrivilegedRole = [UserRole.DIRECTOR as string, UserRole.DISPATCHER as string, UserRole.ACCOUNTANT as string].includes(user.role);
+    const isPrivilegedRole = [UserRole.DIRECTOR as string, UserRole.DISPATCHER as string, UserRole.OPERATOR as string, UserRole.ACCOUNTANT as string].includes(user.role);
     if (isPrivilegedRole) {
       return true;
     }
@@ -240,7 +247,31 @@ export const CounterpartiesPageNew: React.FC = () => {
       {viewMode === 'table' ? (
           <DataTable
             data={counterparties}
-            columns={columns}
+            columns={[
+              ...columns,
+              {
+                id: 'actions' as keyof Counterparty,
+                label: 'Действия',
+                minWidth: 150,
+                render: (_value: any, row: Counterparty) => (
+                  <div className="flex items-center gap-2">
+                    {user && (user.role === UserRole.ADMIN || user.role === UserRole.DEVELOPER || 
+                             user.role === UserRole.DIRECTOR || user.role === UserRole.ACCOUNTANT || 
+                             user.role === UserRole.MANAGER || user.role === UserRole.DISPATCHER) && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleViewReport(row)}
+                        className="text-xs"
+                      >
+                        <FileText className="h-3 w-3 mr-1" />
+                        Отчет
+                      </Button>
+                    )}
+                  </div>
+                ),
+              },
+            ]}
             loading={loading}
             searchable={false}
             onEdit={(cp) => canEdit() && handleEdit(cp)}
@@ -250,6 +281,7 @@ export const CounterpartiesPageNew: React.FC = () => {
                 setConfirmOpen(true);
               }
             }}
+            showActions={false}
           />
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -268,7 +300,24 @@ export const CounterpartiesPageNew: React.FC = () => {
                 fields={[
                   { label: 'Тип', value: kindLabels[counterparty.kind] },
                   { label: 'Телефон', value: counterparty.phone },
-                  { label: 'Адрес', value: counterparty.address, fullWidth: true }
+                  { label: 'Адрес', value: counterparty.address, fullWidth: true },
+                  ...(user && (user.role === UserRole.ADMIN || user.role === UserRole.DEVELOPER || 
+                               user.role === UserRole.DIRECTOR || user.role === UserRole.ACCOUNTANT || 
+                               user.role === UserRole.MANAGER || user.role === UserRole.DISPATCHER) ? [{
+                    label: 'Действия',
+                    value: (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleViewReport(counterparty)}
+                        className="text-xs"
+                      >
+                        <FileText className="h-3 w-3 mr-1" />
+                        Отчет
+                      </Button>
+                    ),
+                    fullWidth: true
+                  }] : [])
                 ]}
                 onEdit={canEdit() ? () => handleEdit(counterparty) : undefined}
                 onDelete={canDelete() ? () => {

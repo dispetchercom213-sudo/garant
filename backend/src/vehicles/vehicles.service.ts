@@ -280,6 +280,98 @@ export class VehiclesService {
     };
   }
 
+  // Получить транспорт для клиента - только транспорт, связанный с его заказами
+  async findAllForClient(page: number = 1, limit: number = 10, search?: string, type?: VehicleType, userId?: number) {
+    const skip = (page - 1) * limit;
+    
+    // Найти все накладные, связанные с заказами клиента
+    const invoices = await this.prisma.invoice.findMany({
+      where: {
+        order: {
+          createdById: userId,
+        },
+        vehicleId: {
+          not: null,
+        },
+      },
+      select: {
+        vehicleId: true,
+      },
+    });
+
+    // Получить уникальные ID транспортных средств
+    const vehicleIds = Array.from(new Set(
+      invoices
+        .map(inv => inv.vehicleId)
+        .filter((id): id is number => id !== null)
+    ));
+
+    if (vehicleIds.length === 0) {
+      return {
+        data: [],
+        meta: {
+          total: 0,
+          page,
+          limit,
+          totalPages: 0,
+        },
+      };
+    }
+
+    const where: any = {
+      id: {
+        in: vehicleIds,
+      },
+    };
+    
+    if (search) {
+      where.OR = [
+        { plate: { contains: search, mode: 'insensitive' as const } },
+      ];
+    }
+    
+    if (type) {
+      where.type = type;
+    }
+
+    const [vehicles, total] = await Promise.all([
+      this.prisma.vehicle.findMany({
+        where,
+        include: {
+          drivers: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              phone: true,
+            },
+          },
+          _count: {
+            select: {
+              invoices: true,
+            },
+          },
+        },
+        orderBy: {
+          createdAt: 'desc',
+        },
+        skip,
+        take: limit,
+      }),
+      this.prisma.vehicle.count({ where }),
+    ]);
+
+    return {
+      data: vehicles,
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
+  }
+
   async findOne(id: number) {
     const vehicle = await this.prisma.vehicle.findUnique({
       where: { id },

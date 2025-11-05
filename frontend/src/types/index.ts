@@ -10,6 +10,7 @@ export interface User {
   email?: string;
   phone?: string;
   status: UserStatus;
+  availabilityStatus?: AvailabilityStatus;
   createdAt: string;
   updatedAt: string;
 }
@@ -24,6 +25,7 @@ export const UserRole = {
   SUPPLIER: 'SUPPLIER',
   OPERATOR: 'OPERATOR',
   DRIVER: 'DRIVER',
+  CLIENT: 'CLIENT',
 } as const;
 
 export type UserRole = typeof UserRole[keyof typeof UserRole];
@@ -35,6 +37,14 @@ export const UserStatus = {
 } as const;
 
 export type UserStatus = typeof UserStatus[keyof typeof UserStatus];
+
+export const AvailabilityStatus = {
+  ONLINE: 'ONLINE',
+  BREAK: 'BREAK',
+  LUNCH: 'LUNCH',
+} as const;
+
+export type AvailabilityStatus = typeof AvailabilityStatus[keyof typeof AvailabilityStatus];
 
 // Типы компаний
 export interface Company {
@@ -239,6 +249,7 @@ export interface Order {
   createdBy: User;
   approvedBy?: User;
   additionalServices?: OrderAdditionalService[];
+  invoices?: Invoice[]; // Накладные по заказу для подсчета доставленного объема
   createdAt: string;
   updatedAt: string;
 }

@@ -111,10 +111,11 @@ export const handleApiError = (error: any): string => {
 
 /**
  * Проверяет, является ли ошибка связанной с аутентификацией
+ * 401 - Unauthorized (токен истек или невалидный) - редирект на логин
+ * 403 - Forbidden (недостаточно прав) - НЕ редиректим, это нормальная ошибка прав доступа
  */
 export const isAuthError = (error: any): boolean => {
-  return error?.response?.status === 401 || 
-         error?.response?.status === 403;
+  return error?.response?.status === 401;
 };
 
 /**

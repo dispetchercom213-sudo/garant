@@ -150,6 +150,8 @@ export const warehousesApi = {
     api.get('/warehouses/stats'),
   getMaterialBalances: (id: number) =>
     api.get(`/warehouses/${id}/balances`),
+  getAllMaterialBalances: (params?: any) =>
+    api.get('/warehouses/materials/balances', { params }),
   create: (data: any) =>
     api.post('/warehouses', data),
   update: (id: number, data: any) =>
@@ -323,6 +325,11 @@ export const invoicesApi = {
     api.post(`/invoices/${id}/departed-from-site`, { latitude, longitude }),
   markArrivedAtPlant: (id: number, latitude?: number, longitude?: number) =>
     api.post(`/invoices/${id}/arrived-at-plant`, { latitude, longitude }),
+  // Методы для менеджера
+  getMyVehiclesForMap: () =>
+    api.get('/invoices/my-vehicles-map'),
+  getAllVehiclesForMap: () =>
+    api.get('/invoices/all-vehicles-map'),
 };
 
 // API методы для отчетов
@@ -333,6 +340,19 @@ export const reportsApi = {
     api.get('/reports/orders', { params }),
   getInvoices: (params?: any) =>
     api.get('/reports/invoices', { params }),
+  // Методы для менеджера (только свои заказы)
+  getMyDashboard: () =>
+    api.get('/reports/my/dashboard'),
+  getMyOrders: (params?: any) =>
+    api.get('/reports/my/orders', { params }),
+  getMyInvoices: (params?: any) =>
+    api.get('/reports/my/invoices', { params }),
+  // Отчет по контрагенту
+  getCounterpartyReport: (counterpartyId: number, params?: any) =>
+    api.get(`/reports/counterparty/${counterpartyId}`, { params }),
+  // Отчет по транспорту
+  getVehiclesReport: (params?: any) =>
+    api.get('/reports/vehicles', { params }),
 };
 
 // API методы для дополнительных услуг
@@ -414,4 +434,20 @@ export const driverWeighingHistoryApi = {
     api.post('/driver-weighing-history', data),
   getMy: () =>
     api.get('/driver-weighing-history/my'),
+};
+
+// API методы для уведомлений
+export const notificationsApi = {
+  getAll: (params?: { unreadOnly?: boolean }) =>
+    api.get('/notifications', { params }),
+  getUnreadCount: () =>
+    api.get('/notifications/unread-count'),
+  getUnreadCountByType: (type: string) =>
+    api.get(`/notifications/unread-count/${type}`),
+  markAsRead: (id: number) =>
+    api.patch(`/notifications/${id}/read`),
+  markAllAsRead: () =>
+    api.patch('/notifications/mark-all-read'),
+  markAsReadByType: (type: string) =>
+    api.patch(`/notifications/mark-read-by-type/${type}`),
 };
